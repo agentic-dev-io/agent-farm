@@ -1,5 +1,5 @@
-<div align="center">
-  <img src="assets/farm.png" alt="Agent Farm" width="100%%" />
+﻿<div align="center">
+  <img src="https://raw.githubusercontent.com/bjoernbethge/agent-farm/master/assets/farm.jpg" alt="Agent Farm" width="100%" />
 </div>
 
 # Agent Farm
