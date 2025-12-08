@@ -6,10 +6,10 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org)
 [![DuckDB](https://img.shields.io/badge/DuckDB-1.1.0+-yellow.svg)](https://duckdb.org)
-[![Ollama](https://img.shields.io/badge/Ollama-Run%%20Locally-white.svg)](https://ollama.com)
+[![Ollama](https://img.shields.io/badge/Ollama-Run%20Locally-white.svg)](https://ollama.com)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-blue.svg)](https://www.docker.com)
 [![MCP](https://img.shields.io/badge/MCP-Protocol-green.svg)](https://modelcontextprotocol.io)
-[![Query Farm](https://img.shields.io/badge/Powered%%20By-Query%%20Farm-orange.svg)](https://query.farm)
+[![Query Farm](https://img.shields.io/badge/Powered%20By-Query%20Farm-orange.svg)](https://query.farm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **DuckDB-powered MCP Server with SQL macros for LLM agents - Web Search, Python execution, RAG, and more.**

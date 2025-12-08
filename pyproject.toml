@@ -1,6 +1,6 @@
 [project]
 name = "agent-farm"
-version = "0.1.2"
+version = "0.1.3"
 description = "DuckDB-powered MCP Server with SQL macros for LLM agents"
 readme = "README.md"
 license = { text = "MIT" }
