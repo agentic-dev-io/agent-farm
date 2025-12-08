@@ -12,22 +12,19 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast package management
-# Install uv for fast package management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Copy project files
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
 COPY README.md .
+COPY install_extensions.py .
 
 # Install dependencies using uv sync
 RUN uv sync --frozen --no-dev
 
-# Pre-install DuckDB extensions
-# Note: We use the venv python to install extensions into the global duckdb cache or standard location
-RUN /app/.venv/bin/python -c "import duckdb; con = duckdb.connect(); \
-    extensions = ['httpfs', 'http_client', 'json', 'icu', 'duckdb_mcp', 'jsonata', 'duckpgq', 'bitfilters', 'lindel', 'vss', 'htmlstringify', 'lsh', 'shellfs', 'zipfs']; \
-    [con.sql(f'INSTALL {ext} FROM community;') for ext in extensions]"
+# Pre-install DuckDB extensions (with error handling for unavailable extensions)
+RUN /app/.venv/bin/python install_extensions.py
 
 # Create a non-root user
 RUN useradd -m farmer
