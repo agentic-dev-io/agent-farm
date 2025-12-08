@@ -18,13 +18,13 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 COPY pyproject.toml uv.lock ./
 COPY src/ src/
 COPY README.md .
-COPY install_extensions.py .
+COPY scripts/ scripts/
 
 # Install dependencies using uv sync
 RUN uv sync --frozen --no-dev
 
 # Pre-install DuckDB extensions (with error handling for unavailable extensions)
-RUN /app/.venv/bin/python install_extensions.py
+RUN /app/.venv/bin/python scripts/install_extensions.py
 
 # Create a non-root user
 RUN useradd -m farmer
