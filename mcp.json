@@ -1,0 +1,54 @@
+{
+  "mcpServers": {
+    "agent-farm": {
+      "command": "agent-farm",
+      "args": [],
+      "env": {},
+      "description": "DuckDB-powered MCP Server with SQL macros for LLM agents - provides web search, Python execution, RAG, and more through SQL interface"
+    },
+    "agent-farm-memory": {
+      "command": "python",
+      "args": ["-m", "agent_farm"],
+      "env": {
+        "DUCKDB_DATABASE": ".agent_memory.db"
+      },
+      "description": "Agent Farm with persistent memory storage for GitHub Copilot context"
+    }
+  },
+  "memory": {
+    "enabled": true,
+    "tables": {
+      "agent_context": {
+        "schema": {
+          "agent_id": "VARCHAR",
+          "context_key": "VARCHAR",
+          "context_value": "JSON",
+          "created_at": "TIMESTAMP",
+          "updated_at": "TIMESTAMP"
+        },
+        "description": "Stores persistent context for different agents"
+      },
+      "code_patterns": {
+        "schema": {
+          "pattern_id": "VARCHAR",
+          "pattern_type": "VARCHAR",
+          "pattern_code": "TEXT",
+          "usage_count": "INTEGER",
+          "last_used": "TIMESTAMP"
+        },
+        "description": "Tracks common code patterns and idioms in the repository"
+      },
+      "workflow_history": {
+        "schema": {
+          "workflow_id": "VARCHAR",
+          "workflow_name": "VARCHAR",
+          "status": "VARCHAR",
+          "started_at": "TIMESTAMP",
+          "completed_at": "TIMESTAMP",
+          "metadata": "JSON"
+        },
+        "description": "Records workflow execution history"
+      }
+    }
+  }
+}
