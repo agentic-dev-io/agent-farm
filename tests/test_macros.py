@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Test script for DuckDB macros"""
-import duckdb
+
 import sys
-import re
+
+import duckdb
 
 
 def split_sql_statements(sql_content):
@@ -31,10 +32,10 @@ def split_sql_statements(sql_content):
                 in_string = False
                 string_char = None
                 current.append(char)
-        elif char == ';' and not in_string:
+        elif char == ";" and not in_string:
             # End of statement
-            stmt = ''.join(current).strip()
-            if stmt and not stmt.startswith('--'):
+            stmt = "".join(current).strip()
+            if stmt and not stmt.startswith("--"):
                 statements.append(stmt)
             current = []
         else:
@@ -43,19 +44,19 @@ def split_sql_statements(sql_content):
 
     # Don't forget last statement if no trailing semicolon
     if current:
-        stmt = ''.join(current).strip()
-        if stmt and not stmt.startswith('--'):
+        stmt = "".join(current).strip()
+        if stmt and not stmt.startswith("--"):
             statements.append(stmt)
 
     return statements
 
 
 def test_macros():
-    con = duckdb.connect(':memory:')
+    con = duckdb.connect(":memory:")
 
     # Load required extensions
     print("Loading extensions...")
-    extensions = ['httpfs', 'http_client', 'json', 'shellfs']
+    extensions = ["httpfs", "http_client", "json", "shellfs"]
     for ext in extensions:
         try:
             con.sql(f"INSTALL {ext};")
@@ -71,7 +72,7 @@ def test_macros():
 
     # Load macros from file
     print("\nLoading macros...")
-    with open('src/agent_farm/macros.sql', 'r', encoding='utf-8') as f:
+    with open("src/agent_farm/macros.sql", "r", encoding="utf-8") as f:
         sql = f.read()
 
     # Split properly respecting string literals
@@ -81,7 +82,9 @@ def test_macros():
     success = 0
     for stmt in statements:
         # Skip comment-only statements
-        lines = [l for l in stmt.split('\n') if l.strip() and not l.strip().startswith('--')]
+        lines = [
+            line for line in stmt.split("\n") if line.strip() and not line.strip().startswith("--")
+        ]
         if not lines:
             continue
         try:
@@ -97,9 +100,9 @@ def test_macros():
             print(f"    - {stmt}... -> {err[:80]}")
 
     # Test individual macros
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("Testing macros:")
-    print("="*50)
+    print("=" * 50)
 
     tests = [
         ("url_encode", "SELECT url_encode('hello world & test=1')"),
@@ -123,9 +126,9 @@ def test_macros():
             print(f"  [FAIL] {name}: {e}")
             failed += 1
 
-    print(f"\n{'='*50}")
+    print(f"\n{'=' * 50}")
     print(f"Results: {passed} passed, {failed} failed")
-    print("="*50)
+    print("=" * 50)
 
     return failed == 0
 

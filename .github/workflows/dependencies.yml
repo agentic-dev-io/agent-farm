@@ -1,0 +1,80 @@
+name: Dependency Updates
+
+on:
+  schedule:
+    # Run weekly on Monday at 08:00 UTC
+    - cron: '0 8 * * 1'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-dependencies:
+    name: Update Python Dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Update dependencies
+        run: |
+          uv lock --upgrade
+          uv sync --dev
+
+      - name: Run tests
+        run: uv run pytest tests/ -v
+
+      - name: Run linter
+        run: uv run ruff check src/ tests/
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet uv.lock; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update dependencies'
+          title: 'chore: Update Python dependencies'
+          body: |
+            ## Automated Dependency Update
+            
+            This PR updates Python dependencies to their latest compatible versions.
+            
+            ### Changes
+            - Updated `uv.lock` with latest dependency versions
+            
+            ### Validation
+            - ✅ All tests pass
+            - ✅ Linting passes
+            
+            Please review the changes and merge if everything looks good.
+            
+            ---
+            *This PR was automatically created by the dependency update workflow.*
+          branch: automated/dependency-updates
+          delete-branch: true
+          labels: |
+            dependencies
+            automated

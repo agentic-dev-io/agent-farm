@@ -1,0 +1,153 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  quality-checks:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "latest"
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Check code complexity
+        run: |
+          uv run python -m pip install radon
+          uv run radon cc src/ -a -nb
+
+      - name: Check code maintainability
+        run: |
+          uv run radon mi src/ -nb
+
+      - name: Run type checking (if mypy is added)
+        continue-on-error: true
+        run: |
+          if uv run python -c "import mypy" 2>/dev/null; then
+            uv run mypy src/
+          else
+            echo "Mypy not installed, skipping type checking"
+          fi
+
+      - name: Check for common issues
+        run: |
+          # Check for TODO/FIXME comments
+          echo "Checking for TODO/FIXME comments..."
+          grep -r "TODO\|FIXME" src/ || echo "No TODO/FIXME found"
+          
+          # Check for print statements (should use logging)
+          echo "Checking for print statements..."
+          grep -r "print(" src/ | grep -v "sys.stderr" || echo "No print statements found (or all to stderr)"
+
+      - name: Generate code coverage report
+        if: github.event_name == 'pull_request'
+        run: |
+          uv run pytest tests/ --cov=agent_farm --cov-report=xml --cov-report=term
+
+      - name: Upload coverage to Codecov
+        if: github.event_name == 'pull_request'
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-agent-farm
+          fail_ci_if_error: false
+
+  documentation-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check README links
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+          config-file: '.github/markdown-link-check-config.json'
+          use-verbose-mode: 'no'
+        continue-on-error: true
+
+      - name: Check for outdated documentation
+        run: |
+          # Check if README mentions correct Python version
+          if grep -q "Python.*3.11" README.md; then
+            echo "✓ README mentions Python 3.11+"
+          else
+            echo "⚠ README might need Python version update"
+          fi
+          
+          # Check if version in README matches pyproject.toml
+          README_VERSION=$(grep -oP 'version = "\K[^"]+' pyproject.toml || echo "unknown")
+          echo "Current version in pyproject.toml: $README_VERSION"
+
+  file-checks:
+    name: File Structure Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check required files exist
+        run: |
+          required_files=(
+            "README.md"
+            "LICENSE"
+            "pyproject.toml"
+            ".gitignore"
+            "Dockerfile"
+          )
+          
+          for file in "${required_files[@]}"; do
+            if [ -f "$file" ]; then
+              echo "✓ $file exists"
+            else
+              echo "✗ $file is missing"
+              exit 1
+            fi
+          done
+
+      - name: Check for large files
+        run: |
+          # Find files larger than 1MB (excluding lock files and assets)
+          large_files=$(find . -type f -size +1M \
+            -not -path "./.git/*" \
+            -not -path "./uv.lock" \
+            -not -path "./assets/*" \
+            -not -path "./*.jpg" \
+            -not -path "./*.png" || true)
+          
+          if [ -n "$large_files" ]; then
+            echo "⚠ Large files found:"
+            echo "$large_files"
+          else
+            echo "✓ No unexpectedly large files"
+          fi
+
+      - name: Check Python file headers
+        run: |
+          # Check if Python files have proper encoding declarations if needed
+          python_files=$(find src/ tests/ -name "*.py")
+          for file in $python_files; do
+            if head -1 "$file" | grep -q "coding"; then
+              echo "✓ $file has encoding declaration"
+            fi
+          done

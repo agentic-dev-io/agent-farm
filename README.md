@@ -12,6 +12,10 @@
 [![Query Farm](https://img.shields.io/badge/Powered%20By-Query%20Farm-orange.svg)](https://query.farm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+[![CI](https://github.com/bjoernbethge/agent-farm/workflows/CI/badge.svg)](https://github.com/bjoernbethge/agent-farm/actions/workflows/ci.yml)
+[![Security](https://github.com/bjoernbethge/agent-farm/workflows/Security/badge.svg)](https://github.com/bjoernbethge/agent-farm/actions/workflows/security.yml)
+[![Code Quality](https://github.com/bjoernbethge/agent-farm/workflows/Code%20Quality/badge.svg)](https://github.com/bjoernbethge/agent-farm/actions/workflows/code-quality.yml)
+
 **🌾 DuckDB-powered MCP Server with SQL macros for LLM agents - Web Search, Python execution, RAG, and more.**
 
 [DuckDB](https://duckdb.org) • [Ollama](https://ollama.com) • [Docker](https://www.docker.com) • [Query Farm](https://query.farm)
@@ -31,6 +35,8 @@
 | 📄 **Web Scraping** | Fetch and extract text from web pages |
 | 🧠 **RAG Support** | Embeddings and vector similarity search |
 | 📦 **Rich Extensions** | Pre-configured with useful DuckDB extensions |
+| 🧠 **Copilot Memory** | MCP-based persistent memory for GitHub Copilot agents |
+| 🚀 **CI/CD Automation** | Comprehensive GitHub Actions workflows for quality and security |
 
 ---
 
@@ -168,6 +174,101 @@ docker run -v /data:/data -p 8080:8080 agent-farm
 - 🐍 Python >= 3.11
 - 🦆 DuckDB >= 1.1.0
 - 🦙 Ollama (for LLM features)
+
+---
+
+## 🤖 GitHub Copilot Integration
+
+Agent Farm includes specialized configurations for GitHub Copilot:
+
+### Copilot Memory with MCP
+
+The included `mcp.json` configuration enables persistent memory for Copilot agents:
+
+```json
+{
+  "mcpServers": {
+    "agent-farm-memory": {
+      "command": "python",
+      "args": ["-m", "agent_farm"],
+      "env": {
+        "DUCKDB_DATABASE": ".agent_memory.db"
+      }
+    }
+  }
+}
+```
+
+This allows Copilot to:
+- Store project context persistently
+- Remember code patterns and conventions
+- Track workflow history
+- Maintain agent-specific memory
+
+### Specialized DevOps Agent
+
+See [`.github/agents/devops-agent.md`](.github/agents/devops-agent.md) for the specialized DevOps agent that assists with:
+- CI/CD pipeline management
+- Workflow automation
+- Security scanning
+- Dependency updates
+- Docker operations
+
+### Copilot Instructions
+
+Comprehensive coding guidelines are available in [`.github/copilot-instructions.md`](.github/copilot-instructions.md), covering:
+- Project architecture and conventions
+- SQL macro development patterns
+- Testing and quality standards
+- MCP protocol integration
+- Performance optimization tips
+
+---
+
+## 🚀 CI/CD & Automation
+
+This repository is fully automated with GitHub Actions workflows:
+
+### Available Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| **CI** | Push, PR | Lint, test, and validate builds |
+| **Security** | Push, PR, Weekly | CodeQL analysis, dependency scanning |
+| **Code Quality** | Push, PR | Code complexity, coverage, documentation checks |
+| **Dependencies** | Weekly | Automated dependency updates |
+| **Release** | Git tags | PyPI publishing, Docker images, GitHub releases |
+
+### Quick Commands
+
+```bash
+# Run linting
+uv run ruff check --fix src/ tests/
+
+# Run tests
+uv run pytest tests/ -v
+
+# Build Docker image
+docker build -t agent-farm .
+```
+
+### Documentation
+
+- [Workflow Documentation](.github/WORKFLOWS.md) - Detailed workflow information
+- [Contributing Guide](.github/CONTRIBUTING.md) - Development guidelines
+- [Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md)
+- [Issue Templates](.github/ISSUE_TEMPLATE/)
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guide](.github/CONTRIBUTING.md) for details on:
+- Development setup
+- Coding standards
+- Testing requirements
+- Pull request process
+- DevOps guidelines
 
 ---
 

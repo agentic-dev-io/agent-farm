@@ -1,8 +1,9 @@
-import duckdb
-import sys
-import os
 import json
+import os
+import sys
 from pathlib import Path
+
+import duckdb
 
 
 def find_mcp_config():
@@ -17,8 +18,10 @@ def find_mcp_config():
         Path.cwd() / "mcp_config.json",
         # Claude Desktop standard locations
         Path.home() / ".config" / "claude" / "claude_desktop_config.json",
-        Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",  # Windows
-        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",  # macOS
+        # Windows
+        Path.home() / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json",
+        # macOS
+        Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json",
         # Generic MCP config
         Path.home() / ".mcp" / "config.json",
     ]
@@ -27,7 +30,7 @@ def find_mcp_config():
     for config_path in config_locations:
         if config_path.exists():
             try:
-                with open(config_path, 'r', encoding='utf-8') as f:
+                with open(config_path, "r", encoding="utf-8") as f:
                     config_data = json.load(f)
                 found_configs.append((str(config_path), config_data))
                 print(f"Found MCP config: {config_path}", file=sys.stderr)
@@ -47,17 +50,11 @@ def extract_mcp_servers(configs):
         # Handle claude_desktop_config.json format
         if "mcpServers" in config_data:
             for name, server_config in config_data["mcpServers"].items():
-                servers[name] = {
-                    "source": config_path,
-                    **server_config
-                }
+                servers[name] = {"source": config_path, **server_config}
         # Handle simple mcp.json format
         elif "servers" in config_data:
             for name, server_config in config_data["servers"].items():
-                servers[name] = {
-                    "source": config_path,
-                    **server_config
-                }
+                servers[name] = {"source": config_path, **server_config}
     return servers
 
 
@@ -82,9 +79,12 @@ def setup_mcp_tables(con, servers):
         env = json.dumps(config.get("env", {}))
         source = config.get("source", "")
 
-        con.execute("""
+        con.execute(
+            """
             INSERT INTO mcp_servers VALUES (?, ?, ?, ?, ?)
-        """, [name, command, args, env, source])
+        """,
+            [name, command, args, env, source],
+        )
 
     print(f"Registered {len(servers)} MCP servers in mcp_servers table", file=sys.stderr)
 
@@ -93,7 +93,7 @@ def main():
     # Initialize DuckDB connection
     con = duckdb.connect(database=":memory:")
 
-    print("initializing queries...", file=sys.stderr)
+    print("Initializing queries...", file=sys.stderr)
 
     # 1. Install & Load Extensions
     extensions = [
@@ -103,26 +103,21 @@ def main():
         "json",
         "icu",
         "duckdb_mcp",
-
         # Advanced Data Structs & Logic
         "jsonata",
         "duckpgq",
         "bitfilters",
         "lindel",
-
         # AI/LLM Stack
-        "vss",              # Vector Similarity Search (native)
-
+        "vss",  # Vector Similarity Search (native)
         # Text Processing
-        "htmlstringify",    # HTML to plain text
-        "lsh",              # Locality Sensitive Hashing
-
+        "htmlstringify",  # HTML to plain text
+        "lsh",  # Locality Sensitive Hashing
         # Extended Data Sources
-        "shellfs",          # Shell commands as tables
-        "zipfs",            # Read ZIP archives
-
+        "shellfs",  # Shell commands as tables
+        "zipfs",  # Read ZIP archives
         # Real-time (optional, may fail on some platforms)
-        "radio",            # WebSocket & Redis PubSub
+        "radio",  # WebSocket & Redis PubSub
     ]
 
     loaded_extensions = []
@@ -167,7 +162,7 @@ def main():
     if os.path.exists(macros_path):
         with open(macros_path, "r") as f:
             sql_script = f.read()
-            for statement in sql_script.split(';'):
+            for statement in sql_script.split(";"):
                 if statement.strip():
                     try:
                         con.sql(statement)
