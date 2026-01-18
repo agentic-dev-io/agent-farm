@@ -216,12 +216,23 @@ See [`.github/agents/devops-agent.md`](.github/agents/devops-agent.md) for the s
 
 ### Copilot Instructions
 
-Comprehensive coding guidelines are available in [`.github/copilot-instructions.md`](.github/copilot-instructions.md), covering:
+Comprehensive coding guidelines are available for GitHub Copilot:
+
+#### Repository-Wide Instructions
+[`.github/copilot-instructions.md`](.github/copilot-instructions.md) covers:
 - Project architecture and conventions
 - SQL macro development patterns
 - Testing and quality standards
 - MCP protocol integration
 - Performance optimization tips
+
+#### Path-Specific Instructions
+The `.github/instructions/` directory contains specialized guidelines for different file types:
+- [`python-tests.instructions.md`](.github/instructions/python-tests.instructions.md) - pytest testing standards
+- [`sql-macros.instructions.md`](.github/instructions/sql-macros.instructions.md) - DuckDB SQL macro conventions
+- [`python-source.instructions.md`](.github/instructions/python-source.instructions.md) - Python code style and patterns
+- [`docker.instructions.md`](.github/instructions/docker.instructions.md) - Dockerfile best practices
+- [`github-workflows.instructions.md`](.github/instructions/github-workflows.instructions.md) - GitHub Actions workflow standards
 
 ---
 
