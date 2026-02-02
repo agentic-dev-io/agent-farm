@@ -1,9 +1,9 @@
 -- 09_smart_extensions.sql - Smart Extension Macros per Organization
--- Macht das System intelligenter durch gezielte Extension-Nutzung
+-- Makes the system smarter through targeted extension usage
 
 -- =============================================================================
 -- JSONATA (ResearchOrg + DevOrg)
--- Leistungsstarke JSON-Transformation und -Abfragen
+-- Powerful JSON transformation and querying
 -- =============================================================================
 
 -- Transform JSON with JSONata expression
@@ -67,7 +67,7 @@ CREATE OR REPLACE MACRO dev_extract_deps(package_json) AS (
 
 -- =============================================================================
 -- DUCKPGQ (OrchestratorOrg)
--- Property Graph Queries für Agent-Beziehungen und Task-Dependencies
+-- Property Graph Queries for agent relationships and task dependencies
 -- =============================================================================
 
 -- Create agent relationship graph
@@ -141,7 +141,7 @@ CREATE OR REPLACE MACRO orchestrator_get_ready_tasks() AS (
 
 -- =============================================================================
 -- BITFILTERS (OpsOrg + ResearchOrg)
--- Probabilistische Datenstrukturen für Deduplication und Caching
+-- Probabilistic data structures for deduplication and caching
 -- =============================================================================
 
 -- OpsOrg: Create log deduplication filter
@@ -191,7 +191,7 @@ CREATE OR REPLACE MACRO research_find_duplicates(texts_table, text_column) AS (
 
 -- =============================================================================
 -- LINDEL (ResearchOrg + StudioOrg)
--- Space-filling curves für Multi-Dimensional Data Ordering
+-- Space-filling curves for multi-dimensional data ordering
 -- =============================================================================
 
 -- ResearchOrg: Encode embedding for efficient storage/retrieval
@@ -251,7 +251,7 @@ CREATE OR REPLACE MACRO studio_find_similar(target_features, limit_count) AS (
 
 -- =============================================================================
 -- LSH (ResearchOrg)
--- Locality Sensitive Hashing für Similarity Search
+-- Locality Sensitive Hashing for similarity search
 -- =============================================================================
 
 -- ResearchOrg: MinHash signature for text similarity
@@ -303,7 +303,7 @@ CREATE OR REPLACE MACRO research_find_similar_docs(query_content, threshold, lim
 
 -- =============================================================================
 -- RADIO (OrchestratorOrg + OpsOrg + StudioOrg)
--- Real-time Event Streams für Agent-Koordination
+-- Real-time event streams for agent coordination
 -- =============================================================================
 
 -- Radio subscriptions table
@@ -360,7 +360,7 @@ CREATE OR REPLACE MACRO studio_collab_event(project_id, event_type, event_data) 
 
 -- =============================================================================
 -- SMART TOOL ROUTER
--- Automatische Extension-Auswahl basierend auf Org und Task
+-- Automatic extension selection based on org and task
 -- =============================================================================
 
 -- Route to smart extension based on org and task type

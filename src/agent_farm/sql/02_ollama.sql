@@ -164,7 +164,7 @@ CREATE OR REPLACE MACRO semantic_score(query_text, doc_text) AS (
 
 -- RAG helpers
 CREATE OR REPLACE MACRO rag_query(question, context) AS
-    deepseek('Beantworte basierend auf folgendem Kontext:\n\n' || context || '\n\nFrage: ' || question);
+    deepseek('Answer based on the following context:\n\n' || context || '\n\nQuestion: ' || question);
 
 CREATE OR REPLACE MACRO rag_think(question, context) AS
-    kimi_think('Analysiere sorgfältig den Kontext und beantworte die Frage:\n\nKontext:\n' || context || '\n\nFrage: ' || question);
+    kimi_think('Carefully analyze the context and answer the question:\n\nContext:\n' || context || '\n\nQuestion: ' || question);

@@ -107,7 +107,7 @@ CREATE OR REPLACE MACRO org_can_execute(org_id_param, tool_name_param, tool_para
         WHEN NOT is_org_tool_allowed(org_id_param, tool_name_param)
             THEN json_object(
                 'allowed', FALSE,
-                'reason', 'Tool nicht für diese Org erlaubt: ' || tool_name_param
+                'reason', 'Tool not allowed for this org: ' || tool_name_param
             )
         -- Tool is denied explicitly
         WHEN is_org_action_denied(org_id_param, 'tool', tool_name_param)
@@ -120,7 +120,7 @@ CREATE OR REPLACE MACRO org_can_execute(org_id_param, tool_name_param, tool_para
             THEN json_object(
                 'allowed', TRUE,
                 'requires_approval', TRUE,
-                'reason', 'Tool benötigt Genehmigung'
+                'reason', 'Tool requires approval'
             )
         -- Tool allowed
         ELSE json_object('allowed', TRUE, 'requires_approval', FALSE)
@@ -172,11 +172,11 @@ CREATE OR REPLACE MACRO orchestrator_tools_schema() AS (
             'type', 'function',
             'function', json_object(
                 'name', 'call_dev_org',
-                'description', 'Ruft DevOrg für Code/Pipeline-Aufgaben auf',
+                'description', 'Calls DevOrg for code/pipeline tasks',
                 'parameters', json_object(
                     'type', 'object',
                     'properties', json_object(
-                        'task', json_object('type', 'string', 'description', 'Aufgabe für DevOrg')
+                        'task', json_object('type', 'string', 'description', 'Task for DevOrg')
                     ),
                     'required', json_array('task')
                 )
@@ -186,11 +186,11 @@ CREATE OR REPLACE MACRO orchestrator_tools_schema() AS (
             'type', 'function',
             'function', json_object(
                 'name', 'call_ops_org',
-                'description', 'Ruft OpsOrg für Deployment/CI/CD-Aufgaben auf',
+                'description', 'Calls OpsOrg for deployment/CI/CD tasks',
                 'parameters', json_object(
                     'type', 'object',
                     'properties', json_object(
-                        'task', json_object('type', 'string', 'description', 'Aufgabe für OpsOrg')
+                        'task', json_object('type', 'string', 'description', 'Task for OpsOrg')
                     ),
                     'required', json_array('task')
                 )
@@ -200,11 +200,11 @@ CREATE OR REPLACE MACRO orchestrator_tools_schema() AS (
             'type', 'function',
             'function', json_object(
                 'name', 'call_research_org',
-                'description', 'Ruft ResearchOrg für Recherche-Aufgaben auf',
+                'description', 'Calls ResearchOrg for research tasks',
                 'parameters', json_object(
                     'type', 'object',
                     'properties', json_object(
-                        'task', json_object('type', 'string', 'description', 'Aufgabe für ResearchOrg')
+                        'task', json_object('type', 'string', 'description', 'Task for ResearchOrg')
                     ),
                     'required', json_array('task')
                 )
@@ -214,11 +214,11 @@ CREATE OR REPLACE MACRO orchestrator_tools_schema() AS (
             'type', 'function',
             'function', json_object(
                 'name', 'call_studio_org',
-                'description', 'Ruft StudioOrg für Specs/Briefings auf',
+                'description', 'Calls StudioOrg for specs/briefings',
                 'parameters', json_object(
                     'type', 'object',
                     'properties', json_object(
-                        'task', json_object('type', 'string', 'description', 'Aufgabe für StudioOrg')
+                        'task', json_object('type', 'string', 'description', 'Task for StudioOrg')
                     ),
                     'required', json_array('task')
                 )
@@ -246,7 +246,7 @@ CREATE OR REPLACE MACRO execute_orchestrator_tool(session_id_param, tool_name, t
             'orchestrator-org', 'studio-org', session_id_param,
             json_extract_string(tool_params, '$.task')
         )
-        ELSE json_object('error', 'Unbekanntes Orchestrator-Tool', 'tool', tool_name)
+        ELSE json_object('error', 'Unknown orchestrator tool', 'tool', tool_name)
     END
 );
 
@@ -258,36 +258,36 @@ CREATE OR REPLACE MACRO execute_orchestrator_tool(session_id_param, tool_name, t
 CREATE OR REPLACE MACRO dev_org_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_read', 'description', 'Datei lesen (nur /projects/dev)',
+            'name', 'fs_read', 'description', 'Read file (only /projects/dev)',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('path', json_object('type', 'string')), 'required', json_array('path'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_write', 'description', 'Datei schreiben (nur /projects/dev)',
+            'name', 'fs_write', 'description', 'Write file (only /projects/dev)',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('path', json_object('type', 'string'), 'content', json_object('type', 'string')),
                 'required', json_array('path', 'content'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_list', 'description', 'Verzeichnis auflisten',
+            'name', 'fs_list', 'description', 'List directory',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('path', json_object('type', 'string')), 'required', json_array('path'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'git_status', 'description', 'Git-Status anzeigen',
+            'name', 'git_status', 'description', 'Show git status',
             'parameters', json_object('type', 'object', 'properties', json_object())
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'git_diff', 'description', 'Git-Diff anzeigen',
+            'name', 'git_diff', 'description', 'Show git diff',
             'parameters', json_object('type', 'object', 'properties', json_object())
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'test_run', 'description', 'Tests lokal ausführen',
+            'name', 'test_run', 'description', 'Run tests locally',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('test_path', json_object('type', 'string')), 'required', json_array('test_path'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'task_complete', 'description', 'Aufgabe abschließen',
+            'name', 'task_complete', 'description', 'Complete task',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('result', json_object('type', 'string')), 'required', json_array('result'))
         ))
@@ -298,35 +298,35 @@ CREATE OR REPLACE MACRO dev_org_tools_schema() AS (
 CREATE OR REPLACE MACRO ops_org_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
-            'name', 'ci_trigger', 'description', 'CI/CD-Pipeline triggern',
+            'name', 'ci_trigger', 'description', 'Trigger CI/CD pipeline',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('pipeline', json_object('type', 'string'), 'branch', json_object('type', 'string')),
                 'required', json_array('pipeline'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'deploy_service', 'description', 'Service deployen (benötigt Approval)',
+            'name', 'deploy_service', 'description', 'Deploy service (requires approval)',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('service', json_object('type', 'string'), 'environment', json_object('type', 'string')),
                 'required', json_array('service', 'environment'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'rollback_service', 'description', 'Service zurückrollen (benötigt Approval)',
+            'name', 'rollback_service', 'description', 'Rollback service (requires approval)',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('service', json_object('type', 'string'), 'version', json_object('type', 'string')),
                 'required', json_array('service', 'version'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'render_job_submit', 'description', 'Render-Job starten',
+            'name', 'render_job_submit', 'description', 'Submit render job',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('job_config', json_object('type', 'string')), 'required', json_array('job_config'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'render_job_status', 'description', 'Render-Job-Status abfragen',
+            'name', 'render_job_status', 'description', 'Get render job status',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('job_id', json_object('type', 'string')), 'required', json_array('job_id'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'task_complete', 'description', 'Aufgabe abschließen',
+            'name', 'task_complete', 'description', 'Complete task',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('result', json_object('type', 'string')), 'required', json_array('result'))
         ))
@@ -337,28 +337,28 @@ CREATE OR REPLACE MACRO ops_org_tools_schema() AS (
 CREATE OR REPLACE MACRO research_org_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
-            'name', 'searxng_search', 'description', 'Web-Suche über SearXNG',
+            'name', 'searxng_search', 'description', 'Web search via SearXNG',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('query', json_object('type', 'string'), 'categories', json_object('type', 'string')),
                 'required', json_array('query'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_read', 'description', 'Research-Note lesen',
+            'name', 'fs_read', 'description', 'Read research note',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('path', json_object('type', 'string')), 'required', json_array('path'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_write_note', 'description', 'Research-Note schreiben',
+            'name', 'fs_write_note', 'description', 'Write research note',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('title', json_object('type', 'string'), 'content', json_object('type', 'string')),
                 'required', json_array('title', 'content'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_list_notes', 'description', 'Research-Notes auflisten',
+            'name', 'fs_list_notes', 'description', 'List research notes',
             'parameters', json_object('type', 'object', 'properties', json_object())
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'task_complete', 'description', 'Aufgabe abschließen',
+            'name', 'task_complete', 'description', 'Complete task',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('result', json_object('type', 'string')), 'required', json_array('result'))
         ))
@@ -369,36 +369,36 @@ CREATE OR REPLACE MACRO research_org_tools_schema() AS (
 CREATE OR REPLACE MACRO studio_org_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_read', 'description', 'Dokument lesen',
+            'name', 'fs_read', 'description', 'Read document',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('path', json_object('type', 'string')), 'required', json_array('path'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'fs_write', 'description', 'Dokument schreiben (nur /projects/studio)',
+            'name', 'fs_write', 'description', 'Write document (only /projects/studio)',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('path', json_object('type', 'string'), 'content', json_object('type', 'string')),
                 'required', json_array('path', 'content'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'notes_board_create', 'description', 'Note auf Board erstellen',
+            'name', 'notes_board_create', 'description', 'Create note on board',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('project', json_object('type', 'string'), 'title', json_object('type', 'string'),
                     'content', json_object('type', 'string')),
                 'required', json_array('project', 'title', 'content'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'notes_board_list', 'description', 'Notes auf Board auflisten',
+            'name', 'notes_board_list', 'description', 'List notes on board',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('project', json_object('type', 'string')), 'required', json_array('project'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'notes_board_update', 'description', 'Note auf Board aktualisieren',
+            'name', 'notes_board_update', 'description', 'Update note on board',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('note_id', json_object('type', 'string'), 'content', json_object('type', 'string')),
                 'required', json_array('note_id', 'content'))
         )),
         json_object('type', 'function', 'function', json_object(
-            'name', 'task_complete', 'description', 'Aufgabe abschließen',
+            'name', 'task_complete', 'description', 'Complete task',
             'parameters', json_object('type', 'object', 'properties',
                 json_object('result', json_object('type', 'string')), 'required', json_array('result'))
         ))

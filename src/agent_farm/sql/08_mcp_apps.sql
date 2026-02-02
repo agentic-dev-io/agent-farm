@@ -248,8 +248,8 @@ INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 ('profile-choices', 'Profile Choices', 'base', '
 <div class="max-w-3xl mx-auto pt-12">
     <div class="mb-12 text-center">
-        <h1 class="text-4xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Willkommen</h1>
-        <p class="mt-3 text-muted">Wähle dein Profil</p>
+        <h1 class="text-4xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Welcome</h1>
+        <p class="mt-3 text-muted">Choose your profile</p>
     </div>
 
     <div class="grid gap-4 md:grid-cols-2" id="profiles">
@@ -271,7 +271,7 @@ INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
     <div class="mt-10 flex justify-center">
         <button id="submit-btn" disabled onclick="submitProfile()"
                 class="glow-btn px-8 py-3 rounded-xl font-medium text-white disabled:cursor-not-allowed">
-            Profil auswählen
+            Select Profile
         </button>
     </div>
 </div>') ON CONFLICT (id) DO NOTHING;
@@ -303,8 +303,8 @@ INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 ('document-viewer', 'Document Viewer', 'base', '
 <div class="max-w-4xl mx-auto">
     <div class="mb-6 flex justify-between items-center">
-        <h1 class="text-xl font-semibold text-white/90">{{ title | default(value="Dokument") }}</h1>
-        <button onclick="MCP.close()" class="pill text-xs">Schließen</button>
+        <h1 class="text-xl font-semibold text-white/90">{{ title | default(value="Document") }}</h1>
+        <button onclick="MCP.close()" class="pill text-xs">Close</button>
     </div>
     <div class="glass rounded-2xl p-6" id="content">
         <article class="prose prose-invert prose-sm max-w-none">{{ content }}</article>
@@ -320,7 +320,7 @@ INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 <div class="max-w-4xl mx-auto">
     <div class="mb-6 flex justify-between items-center">
         <h1 class="text-xl font-semibold text-white/90">{{ title | default(value="Chart") }}</h1>
-        <button onclick="MCP.close()" class="pill text-xs">Schließen</button>
+        <button onclick="MCP.close()" class="pill text-xs">Close</button>
     </div>
     <div class="glass rounded-2xl p-6">
         <canvas id="chart" width="800" height="400"></canvas>
@@ -765,17 +765,17 @@ function runCmd() {
 -- =============================================================================
 
 INSERT INTO mcp_apps (id, name, app_type, description, org_id, template_id) VALUES
-('app.studio.design-choices', 'Design Choices', 'choice', 'Präsentiere Design-Optionen zur Auswahl', 'studio-org', 'design-choices'),
-('app.onboarding.profile-choices', 'Profile Selection', 'choice', 'Onboarding Profil-Auswahl', NULL, 'profile-choices'),
-('app.studio.document', 'Document Viewer', 'viewer', 'Dokument-Anzeige', 'studio-org', 'document-viewer'),
-('app.studio.chart', 'Chart Viewer', 'viewer', 'Diagramm-Anzeige', 'studio-org', 'chart-viewer'),
+('app.studio.design-choices', 'Design Choices', 'choice', 'Present design options for selection', 'studio-org', 'design-choices'),
+('app.onboarding.profile-choices', 'Profile Selection', 'choice', 'Onboarding profile selection', NULL, 'profile-choices'),
+('app.studio.document', 'Document Viewer', 'viewer', 'Document display', 'studio-org', 'document-viewer'),
+('app.studio.chart', 'Chart Viewer', 'viewer', 'Chart display', 'studio-org', 'chart-viewer'),
 ('app.dev.vibe-coder', 'Vibe Coder', 'editor', 'Smart code generation', 'dev-org', 'vibe-coder'),
 ('app.studio.solid-docs', 'Solid Docs', 'editor', 'Documentation generator', 'studio-org', 'solid-docs'),
 ('app.ops.terminal', 'Terminal', 'shell', 'Command execution', 'ops-org', 'terminal'),
 ('app.approval', 'Approval Flow', 'approval', 'Human-in-the-loop decisions', NULL, 'approval-flow'),
 ('app.model-selector', 'Model Selector', 'selector', 'AI Model selection like Kling/Veo', NULL, 'model-selector'),
 ('app.immersive', 'Immersive Preview', 'preview', 'Full-screen immersive preview', 'studio-org', 'immersive-preview'),
-('app.settings', 'Settings', 'config', 'Benutzer-Einstellungen', NULL, NULL)
+('app.settings', 'Settings', 'config', 'User settings', NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -783,10 +783,10 @@ ON CONFLICT (id) DO NOTHING;
 -- =============================================================================
 
 INSERT INTO onboarding_profiles (id, name, description, icon, focus, defaults) VALUES
-('developer', 'Entwickler', 'Code, Pipelines, Git-Integration', '💻', '["code", "git", "testing"]'::JSON, '{"theme": "dark", "editor": "vim"}'::JSON),
-('designer', 'Designer', 'Kreativ, Briefings, Asset-Management', '🎨', '["design", "assets", "specs"]'::JSON, '{"theme": "light", "preview": true}'::JSON),
-('manager', 'Projektleitung', 'Übersicht, Planung, Dokumentation', '📊', '["planning", "docs", "reports"]'::JSON, '{"theme": "light", "dashboard": true}'::JSON),
-('researcher', 'Researcher', 'Recherche, Analyse, Zusammenfassungen', '🔍', '["search", "analysis", "notes"]'::JSON, '{"theme": "auto", "sources": true}'::JSON)
+('developer', 'Developer', 'Code, pipelines, Git integration', '💻', '["code", "git", "testing"]'::JSON, '{"theme": "dark", "editor": "vim"}'::JSON),
+('designer', 'Designer', 'Creative, briefings, asset management', '🎨', '["design", "assets", "specs"]'::JSON, '{"theme": "light", "preview": true}'::JSON),
+('manager', 'Project Lead', 'Overview, planning, documentation', '📊', '["planning", "docs", "reports"]'::JSON, '{"theme": "light", "dashboard": true}'::JSON),
+('researcher', 'Researcher', 'Research, analysis, summaries', '🔍', '["search", "analysis", "notes"]'::JSON, '{"theme": "auto", "sources": true}'::JSON)
 ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -979,7 +979,7 @@ CREATE OR REPLACE MACRO studio_org_apps_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
             'name', 'present_design_choices',
-            'description', 'Präsentiere Design-Optionen zur Auswahl (öffnet UI)',
+            'description', 'Present design options for selection (opens UI)',
             'parameters', json_object('type', 'object', 'properties', json_object(
                 'title', json_object('type', 'string'),
                 'description', json_object('type', 'string'),
@@ -988,7 +988,7 @@ CREATE OR REPLACE MACRO studio_org_apps_tools_schema() AS (
         )),
         json_object('type', 'function', 'function', json_object(
             'name', 'view_document',
-            'description', 'Zeige Dokument im Viewer',
+            'description', 'Display document in viewer',
             'parameters', json_object('type', 'object', 'properties', json_object(
                 'content', json_object('type', 'string'),
                 'format', json_object('type', 'string', 'enum', json_array('markdown', 'html', 'text'))
@@ -996,7 +996,7 @@ CREATE OR REPLACE MACRO studio_org_apps_tools_schema() AS (
         )),
         json_object('type', 'function', 'function', json_object(
             'name', 'view_chart',
-            'description', 'Zeige Chart/Diagramm',
+            'description', 'Display chart/diagram',
             'parameters', json_object('type', 'object', 'properties', json_object(
                 'chart_type', json_object('type', 'string', 'enum', json_array('bar', 'line', 'pie')),
                 'data', json_object('type', 'object'),
@@ -1336,7 +1336,7 @@ CREATE OR REPLACE MACRO smart_execute_tool(org_id_param, session_id_param, tool_
                 org_id_param,
                 tool_name_param,
                 tool_params_param,
-                'Dieses Tool benötigt Genehmigung'
+                'This tool requires approval'
             )
         -- Execute normally
         ELSE execute_org_tool(org_id_param, session_id_param, tool_name_param, tool_params_param)

@@ -86,7 +86,7 @@ CREATE OR REPLACE MACRO deploy_service(service_name, environment) AS (
         'status', 'approval_required',
         'service', service_name,
         'environment', environment,
-        'message', 'Deployment benötigt manuelle Genehmigung',
+        'message', 'Deployment requires manual approval',
         'action', 'deploy'
     )
 );
@@ -97,7 +97,7 @@ CREATE OR REPLACE MACRO rollback_service(service_name, target_version) AS (
         'status', 'approval_required',
         'service', service_name,
         'version', target_version,
-        'message', 'Rollback benötigt manuelle Genehmigung',
+        'message', 'Rollback requires manual approval',
         'action', 'rollback'
     )
 );
@@ -233,11 +233,11 @@ CREATE OR REPLACE MACRO fs_list_notes() AS (
 CREATE OR REPLACE MACRO test_run(test_path) AS (
     SELECT CASE
         WHEN test_path NOT LIKE '/projects/dev%'
-            THEN json_object('error', 'Tests nur in /projects/dev erlaubt')
+            THEN json_object('error', 'Tests only allowed in /projects/dev')
         ELSE json_object(
             'command', 'pytest ' || test_path,
             'status', 'would_execute',
-            'note', 'Shell-Ausführung benötigt approval oder power-mode'
+            'note', 'Shell execution requires approval or power-mode'
         )
     END
 );
@@ -255,7 +255,7 @@ CREATE OR REPLACE MACRO git_patch(commit_range) AS (
 CREATE OR REPLACE MACRO git_patch_check(patch_content) AS (
     SELECT json_object(
         'status', 'dry_run',
-        'message', 'Patch-Anwendung benötigt Approval',
+        'message', 'Patch application requires approval',
         'patch_size', length(patch_content)
     )
 );
