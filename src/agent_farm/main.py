@@ -154,6 +154,8 @@ def main():
         # Text Processing
         "htmlstringify",  # HTML to plain text
         "lsh",  # Locality Sensitive Hashing
+        # Template Engine
+        "minijinja",  # Jinja2-like templates in SQL
         # Extended Data Sources
         "shellfs",  # Shell commands as tables
         "zipfs",  # Read ZIP archives
