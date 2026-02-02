@@ -74,46 +74,59 @@ INSERT INTO mcp_app_templates (id, name, template) VALUES
         theme: {
           extend: {
             colors: {
-              surface: { 50: "#1a1a1a", 100: "#141414", 200: "#0d0d0d", 300: "#0a0a0a" },
+              surface: { 50: "#1e1e1e", 100: "#171717", 200: "#121212", 300: "#0a0a0a" },
               accent: { DEFAULT: "#22c55e", dim: "#16a34a", glow: "#4ade80" },
-              muted: { DEFAULT: "#737373", light: "#a3a3a3" }
-            },
-            borderRadius: { pill: "9999px" },
-            backdropBlur: { glass: "20px" }
+              cyan: { DEFAULT: "#22d3ee", dim: "#06b6d4", glow: "#67e8f9" },
+              violet: { DEFAULT: "#a78bfa", dim: "#8b5cf6", glow: "#c4b5fd" },
+              amber: { DEFAULT: "#fbbf24", dim: "#f59e0b", glow: "#fcd34d" },
+              rose: { DEFAULT: "#fb7185", dim: "#f43f5e", glow: "#fda4af" },
+              muted: { DEFAULT: "#525252", light: "#a3a3a3", lighter: "#d4d4d4" }
+            }
           }
         }
       }
     </script>
     <style>
-      body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", sans-serif; }
-      .glass { background: rgba(26, 26, 26, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
-      .card-hover { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-      .card-hover:hover { transform: translateY(-2px); box-shadow: 0 0 30px rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.4); }
-      .pill { padding: 6px 14px; border-radius: 9999px; font-size: 13px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); transition: all 0.15s; }
-      .pill:hover { background: rgba(255,255,255,0.1); }
-      .pill.active { background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.5); color: #4ade80; }
-      .glow-btn { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); box-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
-      .glow-btn:hover { box-shadow: 0 0 30px rgba(34, 197, 94, 0.5); }
-      .glow-btn:disabled { background: #333; box-shadow: none; opacity: 0.5; }
+      * { box-sizing: border-box; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif; }
+      .glass { background: rgba(23, 23, 23, 0.8); backdrop-filter: blur(24px) saturate(180%); border: 1px solid rgba(255,255,255,0.06); }
+      .glass-heavy { background: rgba(10, 10, 10, 0.9); backdrop-filter: blur(32px) saturate(200%); }
+      .card { transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid rgba(255,255,255,0.04); }
+      .card:hover { transform: translateY(-4px) scale(1.01); box-shadow: 0 20px 40px -12px rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.1); }
+      .card.selected { border-color: rgba(34, 197, 94, 0.6); box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.3), 0 20px 40px -12px rgba(34, 197, 94, 0.15); }
+      .pill { display: inline-flex; align-items: center; gap: 4px; padding: 5px 12px; border-radius: 9999px; font-size: 12px; font-weight: 500; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.06); transition: all 0.15s; }
+      .pill:hover { background: rgba(255,255,255,0.12); }
+      .pill.cyan { background: rgba(34,211,238,0.15); border-color: rgba(34,211,238,0.3); color: #67e8f9; }
+      .pill.violet { background: rgba(167,139,250,0.15); border-color: rgba(167,139,250,0.3); color: #c4b5fd; }
+      .pill.amber { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); color: #fcd34d; }
+      .pill.rose { background: rgba(251,113,133,0.15); border-color: rgba(251,113,133,0.3); color: #fda4af; }
+      .pill.green { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: #4ade80; }
+      .pill.ghost { background: transparent; border-color: rgba(255,255,255,0.1); }
+      .cost-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 8px; font-size: 11px; font-weight: 600; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08); }
+      .glow-btn { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); box-shadow: 0 0 24px rgba(34, 197, 94, 0.4), inset 0 1px 0 rgba(255,255,255,0.1); }
+      .glow-btn:hover { box-shadow: 0 0 32px rgba(34, 197, 94, 0.5), inset 0 1px 0 rgba(255,255,255,0.2); transform: translateY(-1px); }
+      .glow-btn:disabled { background: #262626; box-shadow: none; opacity: 0.5; transform: none; }
+      .badge-new { background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+      .prompt-bar { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 720px; padding: 0 16px; z-index: 50; }
+      .prompt-bar-inner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 20px; }
       ::selection { background: rgba(34, 197, 94, 0.3); }
-      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: #444; }
+      @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+      .shimmer { background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%); background-size: 200% 100%; animation: shimmer 2s infinite; }
     </style>
 </head>
-<body class="h-full bg-surface-300 text-white">
-    <div id="app" class="min-h-full p-8">
+<body class="h-full bg-surface-300 text-white antialiased">
+    <div id="app" class="min-h-full">
         {{ content }}
     </div>
     <script>
         const MCP = {
             instanceId: "{{ instance_id }}",
-            submit(result) {
-                window.parent.postMessage({ type: "app_result", instanceId: this.instanceId, result }, "*");
-            },
-            close() {
-                window.parent.postMessage({ type: "app_close", instanceId: this.instanceId }, "*");
-            }
+            submit(result) { window.parent.postMessage({ type: "app_result", instanceId: this.instanceId, result }, "*"); },
+            close() { window.parent.postMessage({ type: "app_close", instanceId: this.instanceId }, "*"); }
         };
         {{ script | default(value="") }}
     </script>
@@ -126,59 +139,81 @@ INSERT INTO mcp_app_templates (id, name, template) VALUES
 
 INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 ('design-choices', 'Design Choices', 'base', '
-<div class="max-w-5xl mx-auto">
+<div class="p-8 pb-32">
     <!-- Header -->
-    <div class="mb-10">
-        <h1 class="text-2xl font-semibold tracking-tight">{{ title }}</h1>
-        {% if description %}<p class="mt-2 text-muted-light text-sm">{{ description }}</p>{% endif %}
+    <div class="max-w-6xl mx-auto mb-8">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-xl font-semibold">{{ title }}</h1>
+                {% if description %}<p class="mt-1 text-sm text-muted-light">{{ description }}</p>{% endif %}
+            </div>
+            {% if credits %}<div class="cost-badge"><span class="text-amber">✦</span> {{ credits }} credits</div>{% endif %}
+        </div>
     </div>
-
-    <!-- Mode Pills (like Seedance) -->
-    {% if modes %}
-    <div class="flex gap-2 mb-8">
-        {% for mode in modes %}<button class="pill" data-mode="{{ mode.id }}">{{ mode.label }}</button>{% endfor %}
-    </div>
-    {% endif %}
 
     <!-- Options Grid -->
-    <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3" id="options">
+    <div class="max-w-6xl mx-auto grid gap-4 md:grid-cols-2 xl:grid-cols-3" id="options">
         {% for opt in options %}
-        <div class="card-hover glass rounded-2xl p-5 cursor-pointer border border-white/5"
+        <div class="card glass rounded-2xl p-5 cursor-pointer group"
              data-id="{{ opt.id }}" onclick="selectOption(''{{ opt.id }}'')">
+
+            <!-- Header Row -->
+            <div class="flex items-start justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    {% if opt.icon %}<span class="text-lg">{{ opt.icon }}</span>{% endif %}
+                    <h3 class="font-semibold text-white">{{ opt.title }}</h3>
+                    {% if opt.badge %}<span class="badge-new">{{ opt.badge }}</span>{% endif %}
+                </div>
+                {% if opt.cost %}<div class="cost-badge text-muted-light"><span class="text-cyan">✦</span> {{ opt.cost }}</div>{% endif %}
+            </div>
+
+            <!-- Description -->
+            {% if opt.description %}<p class="text-sm text-muted-light mb-4 line-clamp-2">{{ opt.description }}</p>{% endif %}
+
+            <!-- Preview Image -->
             {% if opt.preview %}
-            <div class="aspect-video rounded-xl overflow-hidden mb-4 bg-surface-100">
-                <img src="{{ opt.preview }}" class="w-full h-full object-cover" alt="{{ opt.title }}">
+            <div class="aspect-video rounded-xl overflow-hidden mb-4 bg-surface-100 shimmer">
+                <img src="{{ opt.preview }}" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity" alt="{{ opt.title }}">
             </div>
             {% endif %}
-            {% if opt.icon %}<div class="text-2xl mb-3">{{ opt.icon }}</div>{% endif %}
-            <h3 class="font-medium text-white/90">{{ opt.title }}</h3>
-            {% if opt.description %}<p class="mt-1.5 text-sm text-muted">{{ opt.description }}</p>{% endif %}
+
+            <!-- Feature Pills -->
+            {% if opt.features %}
+            <div class="flex flex-wrap gap-1.5">
+                {% for f in opt.features %}
+                <span class="pill {{ f.color | default(value='''') }}">{{ f.label }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Simple Tags Fallback -->
             {% if opt.tags %}
-            <div class="mt-4 flex flex-wrap gap-1.5">
-                {% for tag in opt.tags %}<span class="pill text-xs">{{ tag }}</span>{% endfor %}
+            <div class="flex flex-wrap gap-1.5">
+                {% for tag in opt.tags %}<span class="pill">{{ tag }}</span>{% endfor %}
             </div>
             {% endif %}
         </div>
         {% endfor %}
     </div>
 
-    <!-- Input Bar (Seedance style) -->
-    <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4">
-        <div class="glass rounded-2xl p-4">
-            <div class="flex items-center gap-3">
-                <div class="flex gap-2">
-                    <button class="pill text-xs opacity-60">Template</button>
-                </div>
+    <!-- Floating Prompt Bar -->
+    <div class="prompt-bar">
+        <div class="prompt-bar-inner glass-heavy">
+            <div class="flex items-center gap-2">
+                {% if selected_icon %}<span class="text-lg">{{ selected_icon }}</span>{% endif %}
+                <span id="selected-label" class="text-sm text-muted">Select an option</span>
+            </div>
+            <div class="flex-1">
                 <input type="text" id="rationale"
-                       class="flex-1 bg-transparent border-none outline-none text-sm text-white/80 placeholder-muted"
-                       placeholder="Describe your choice or add context...">
-                <div class="flex items-center gap-2">
-                    <button onclick="MCP.close()" class="pill text-xs text-muted hover:text-white">Esc</button>
-                    <button id="submit-btn" disabled onclick="submitChoice()"
-                            class="glow-btn px-5 py-2 rounded-xl text-sm font-medium text-white disabled:cursor-not-allowed">
-                        Select
-                    </button>
-                </div>
+                       class="w-full bg-transparent border-none outline-none text-sm text-white placeholder-muted"
+                       placeholder="Add context or notes...">
+            </div>
+            <div class="flex items-center gap-2">
+                <button onclick="MCP.close()" class="pill ghost text-muted hover:text-white text-xs">Cancel</button>
+                <button id="submit-btn" disabled onclick="submitChoice()"
+                        class="glow-btn px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:cursor-not-allowed transition-all">
+                    Select
+                </button>
             </div>
         </div>
     </div>
@@ -532,6 +567,153 @@ function approve() { MCP.submit({ decision: "approved" }); }
 function deny() { MCP.submit({ decision: "denied" }); }') ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
+-- MODEL SELECTOR TEMPLATE - Like Kling/Veo/Runway model picker
+-- =============================================================================
+
+INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
+('model-selector', 'Model Selector', 'base', '
+<div class="p-8 pb-32">
+    <!-- Header -->
+    <div class="max-w-5xl mx-auto mb-6 flex items-center justify-between">
+        <h1 class="text-lg font-semibold">{{ title | default(value="Select Model") }}</h1>
+        <div class="flex items-center gap-3">
+            {% if balance %}<div class="cost-badge"><span class="text-cyan">✦</span> {{ balance }} remaining</div>{% endif %}
+            <button onclick="MCP.close()" class="text-muted hover:text-white text-xl">&times;</button>
+        </div>
+    </div>
+
+    <!-- Models Grid -->
+    <div class="max-w-5xl mx-auto grid gap-3 md:grid-cols-2" id="models">
+        {% for m in models %}
+        <div class="card glass rounded-2xl p-5 cursor-pointer" data-id="{{ m.id }}" onclick="selectModel(''{{ m.id }}'')">
+            <div class="flex items-start justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    {% if m.provider_icon %}<span class="text-lg">{{ m.provider_icon }}</span>{% endif %}
+                    <h3 class="font-semibold text-white">{{ m.name }}</h3>
+                    {% if m.badge %}<span class="badge-new">{{ m.badge }}</span>{% endif %}
+                </div>
+                <div class="cost-badge"><span class="text-amber">✦</span> {{ m.cost | default(value="Free") }}</div>
+            </div>
+            <p class="text-sm text-muted-light mb-4">{{ m.description }}</p>
+            <div class="flex flex-wrap gap-1.5">
+                {% for f in m.features %}
+                <span class="pill {{ f.color | default(value='''') }}">{{ f.label }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Floating Bar -->
+    <div class="prompt-bar">
+        <div class="prompt-bar-inner glass-heavy">
+            <div class="flex items-center gap-3 flex-1">
+                <span id="selected-model" class="pill green hidden">--</span>
+                <input type="text" id="prompt"
+                       class="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-muted"
+                       placeholder="{{ prompt_placeholder | default(value=''Describe what you want...'') }}">
+            </div>
+            <div class="flex items-center gap-2">
+                <button class="pill ghost text-xs">Negative Prompt</button>
+                <div class="pill ghost text-xs"><span class="text-cyan">⚙</span> {{ default_quality | default(value="80%") }}</div>
+                <button id="submit-btn" disabled onclick="submitModel()"
+                        class="glow-btn w-10 h-10 rounded-xl flex items-center justify-center text-white disabled:cursor-not-allowed">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>') ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mcp_app_templates (id, name, template) VALUES
+('model-selector-script', 'Model Selector Script', '
+let selectedModel = null;
+function selectModel(id) {
+    document.querySelectorAll("[data-id]").forEach(el => el.classList.remove("selected"));
+    document.querySelector(`[data-id="${id}"]`).classList.add("selected");
+    selectedModel = id;
+    const label = document.querySelector(`[data-id="${id}"] h3`).textContent;
+    document.getElementById("selected-model").textContent = label;
+    document.getElementById("selected-model").classList.remove("hidden");
+    document.getElementById("submit-btn").disabled = false;
+}
+function submitModel() {
+    if (!selectedModel) return;
+    MCP.submit({ model_id: selectedModel, prompt: document.getElementById("prompt").value });
+}') ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
+-- IMMERSIVE PREVIEW TEMPLATE - Full-screen with floating toolbar
+-- =============================================================================
+
+INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
+('immersive-preview', 'Immersive Preview', 'base', '
+<div class="relative h-screen w-full overflow-hidden bg-black">
+    <!-- Background/Preview -->
+    <div class="absolute inset-0">
+        {% if preview_type == "image" %}
+        <img src="{{ preview_url }}" class="w-full h-full object-contain" alt="Preview">
+        {% elif preview_type == "video" %}
+        <video src="{{ preview_url }}" class="w-full h-full object-contain" autoplay loop muted></video>
+        {% else %}
+        <div class="w-full h-full flex items-center justify-center text-muted">
+            <div class="text-center">
+                <div class="text-6xl mb-4">{{ icon | default(value="📄") }}</div>
+                <div class="text-lg">{{ placeholder | default(value="Preview") }}</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Top Toolbar -->
+    <div class="absolute top-6 left-1/2 -translate-x-1/2 z-10">
+        <div class="glass-heavy rounded-full px-4 py-2 flex items-center gap-3">
+            <span class="text-sm font-medium">{{ toolbar_title | default(value="AI Toolkit") }}</span>
+            <div class="w-px h-4 bg-white/10"></div>
+            <button class="p-1.5 hover:bg-white/10 rounded-lg transition"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z"/></svg></button>
+            <button class="p-1.5 hover:bg-white/10 rounded-lg transition"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z"/></svg></button>
+        </div>
+    </div>
+
+    <!-- Side Actions -->
+    <div class="absolute left-6 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2">
+        {% for action in side_actions %}
+        <button class="glass-heavy w-10 h-10 rounded-xl flex items-center justify-center hover:bg-white/10 transition"
+                onclick="sideAction(''{{ action.id }}'')">
+            {% if action.icon %}{{ action.icon }}{% else %}<span class="text-sm">{{ action.label | truncate(length=1) }}</span>{% endif %}
+        </button>
+        {% endfor %}
+    </div>
+
+    <!-- Bottom Prompt Bar -->
+    <div class="absolute bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl px-6 z-10">
+        <div class="glass-heavy rounded-2xl p-1">
+            <div class="flex items-center gap-3 px-4 py-3">
+                <span class="text-white/60 text-sm">{{ prompt_hint | default(value="") }}</span>
+            </div>
+            <div class="flex items-center gap-2 px-3 pb-3">
+                {% for opt in bottom_options %}
+                <button class="pill {{ opt.color | default(value='''') }}" onclick="setOption(''{{ opt.id }}'', ''{{ opt.value }}'')">
+                    {% if opt.icon %}{{ opt.icon }}{% endif %} {{ opt.label }}
+                </button>
+                {% endfor %}
+                <div class="flex-1"></div>
+                <button onclick="submitPreview()" class="glow-btn w-10 h-10 rounded-xl flex items-center justify-center">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>') ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mcp_app_templates (id, name, template) VALUES
+('immersive-preview-script', 'Immersive Preview Script', '
+let options = {};
+function sideAction(id) { MCP.submit({ action: "side", id: id }); }
+function setOption(key, value) { options[key] = value; }
+function submitPreview() { MCP.submit({ action: "generate", options: options }); }') ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
 -- TERMINAL/SHELL TEMPLATE - Command execution interface
 -- =============================================================================
 
@@ -591,6 +773,8 @@ INSERT INTO mcp_apps (id, name, app_type, description, org_id, template_id) VALU
 ('app.studio.solid-docs', 'Solid Docs', 'editor', 'Documentation generator', 'studio-org', 'solid-docs'),
 ('app.ops.terminal', 'Terminal', 'shell', 'Command execution', 'ops-org', 'terminal'),
 ('app.approval', 'Approval Flow', 'approval', 'Human-in-the-loop decisions', NULL, 'approval-flow'),
+('app.model-selector', 'Model Selector', 'selector', 'AI Model selection like Kling/Veo', NULL, 'model-selector'),
+('app.immersive', 'Immersive Preview', 'preview', 'Full-screen immersive preview', 'studio-org', 'immersive-preview'),
 ('app.settings', 'Settings', 'config', 'Benutzer-Einstellungen', NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
@@ -962,4 +1146,78 @@ CREATE OR REPLACE MACRO ops_org_apps_tools_schema() AS (
             ))
         ))
     )
+);
+
+-- =============================================================================
+-- MODEL SELECTOR TOOLS (Cross-Org)
+-- =============================================================================
+
+CREATE OR REPLACE MACRO open_model_selector(session_id_param, models_json, balance) AS (
+    SELECT open_app('app.model-selector', session_id_param, json_object(
+        'models', json(models_json),
+        'balance', balance,
+        'prompt_placeholder', 'Describe what you want to generate...'
+    ))
+);
+
+-- Convenience: select from available LLM models
+CREATE OR REPLACE MACRO select_llm_model(session_id_param) AS (
+    SELECT open_app('app.model-selector', session_id_param, json_object(
+        'title', 'Select AI Model',
+        'models', json_array(
+            json_object('id', 'claude-sonnet', 'name', 'Claude Sonnet', 'provider_icon', '🟣', 'cost', 'From ✦ 100', 'description', 'Fast, balanced model for most tasks', 'features', json_array(
+                json_object('label', 'Fast', 'color', 'cyan'),
+                json_object('label', 'Code', 'color', 'violet'),
+                json_object('label', '200k ctx', 'color', 'amber')
+            )),
+            json_object('id', 'claude-opus', 'name', 'Claude Opus', 'provider_icon', '🟣', 'badge', 'BEST', 'cost', 'From ✦ 500', 'description', 'Most capable model for complex reasoning', 'features', json_array(
+                json_object('label', 'Reasoning', 'color', 'violet'),
+                json_object('label', 'Analysis', 'color', 'cyan'),
+                json_object('label', '200k ctx', 'color', 'amber')
+            )),
+            json_object('id', 'llama-3.2', 'name', 'Llama 3.2', 'provider_icon', '🦙', 'cost', 'Free', 'description', 'Fast local model via Ollama', 'features', json_array(
+                json_object('label', 'Local', 'color', 'green'),
+                json_object('label', 'Fast', 'color', 'cyan'),
+                json_object('label', '8k ctx')
+            )),
+            json_object('id', 'qwen-coder', 'name', 'Qwen Coder', 'provider_icon', '🔵', 'cost', 'Free', 'description', 'Specialized coding model', 'features', json_array(
+                json_object('label', 'Code', 'color', 'violet'),
+                json_object('label', 'Local', 'color', 'green'),
+                json_object('label', '32k ctx', 'color', 'amber')
+            )),
+            json_object('id', 'glm-4', 'name', 'GLM-4', 'provider_icon', '🟢', 'badge', 'NEW', 'cost', 'From ✦ 50', 'description', 'Multilingual with strong Chinese support', 'features', json_array(
+                json_object('label', 'Multilingual', 'color', 'cyan'),
+                json_object('label', 'Fast', 'color', 'green')
+            ))
+        )
+    ))
+);
+
+-- =============================================================================
+-- IMMERSIVE PREVIEW TOOLS (StudioOrg)
+-- =============================================================================
+
+CREATE OR REPLACE MACRO studio_open_preview(session_id_param, preview_type, preview_url, options_json) AS (
+    SELECT open_app('app.immersive', session_id_param, json_object(
+        'preview_type', preview_type,
+        'preview_url', preview_url,
+        'bottom_options', json(options_json),
+        'toolbar_title', 'AI Toolkit'
+    ))
+);
+
+CREATE OR REPLACE MACRO studio_image_preview(session_id_param, image_url, prompt_hint) AS (
+    SELECT open_app('app.immersive', session_id_param, json_object(
+        'preview_type', 'image',
+        'preview_url', image_url,
+        'prompt_hint', prompt_hint,
+        'toolbar_title', 'Image Preview',
+        'bottom_options', json_array(
+            json_object('id', 'model', 'label', 'SDXL', 'icon', '🎨'),
+            json_object('id', 'ratio', 'label', 'Auto Ratio', 'icon', '⬚'),
+            json_object('id', 'count', 'label', '4 Images'),
+            json_object('id', 'negative', 'label', 'Negative Prompt', 'color', 'ghost'),
+            json_object('id', 'quality', 'label', '80%', 'icon', '⚙', 'color', 'cyan')
+        )
+    ))
 );
