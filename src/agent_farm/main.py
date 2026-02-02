@@ -294,8 +294,80 @@ def main():
 
         -- Create sequence for audit log if not exists
         CREATE SEQUENCE IF NOT EXISTS audit_seq START 1;
+
+        -- Organization tables
+        CREATE TABLE IF NOT EXISTS orgs (
+            id VARCHAR PRIMARY KEY,
+            name VARCHAR NOT NULL,
+            org_type VARCHAR NOT NULL,
+            description VARCHAR,
+            model_primary VARCHAR NOT NULL,
+            model_secondary VARCHAR,
+            system_prompt TEXT NOT NULL,
+            enabled BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS org_tools (
+            org_id VARCHAR NOT NULL,
+            tool_name VARCHAR NOT NULL,
+            enabled BOOLEAN DEFAULT TRUE,
+            requires_approval BOOLEAN DEFAULT FALSE,
+            PRIMARY KEY (org_id, tool_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS org_denials (
+            org_id VARCHAR NOT NULL,
+            denial_type VARCHAR NOT NULL,
+            pattern VARCHAR NOT NULL,
+            reason VARCHAR,
+            PRIMARY KEY (org_id, denial_type, pattern)
+        );
+
+        CREATE TABLE IF NOT EXISTS org_calls (
+            id INTEGER PRIMARY KEY,
+            session_id VARCHAR NOT NULL,
+            caller_org VARCHAR NOT NULL,
+            target_org VARCHAR NOT NULL,
+            task VARCHAR NOT NULL,
+            status VARCHAR DEFAULT 'pending',
+            result JSON,
+            created_at TIMESTAMP DEFAULT now(),
+            completed_at TIMESTAMP
+        );
+
+        -- Notes board for StudioOrg
+        CREATE TABLE IF NOT EXISTS notes_board (
+            id VARCHAR PRIMARY KEY,
+            project VARCHAR NOT NULL,
+            title VARCHAR NOT NULL,
+            content TEXT,
+            note_type VARCHAR DEFAULT 'general',
+            status VARCHAR DEFAULT 'open',
+            created_by VARCHAR DEFAULT 'studio-org',
+            created_at TIMESTAMP DEFAULT now(),
+            updated_at TIMESTAMP DEFAULT now()
+        );
     """)
     print("Agent config tables created.", file=sys.stderr)
+
+    # 3b. Seed organization configurations
+    try:
+        from .orgs import generate_org_seed_sql
+
+        org_seed_sql = generate_org_seed_sql()
+        for stmt in org_seed_sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                try:
+                    con.sql(stmt)
+                except Exception as e:
+                    print(f"Error seeding org: {e}", file=sys.stderr)
+        print("Organization configs seeded.", file=sys.stderr)
+    except ImportError:
+        print("Orgs module not available, skipping seed", file=sys.stderr)
+    except Exception as e:
+        print(f"Error seeding orgs: {e}", file=sys.stderr)
 
     # 4. Load SQL Macros from sql/ directory
     sql_dir = os.path.join(os.path.dirname(__file__), "sql")

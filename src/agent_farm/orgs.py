@@ -1,0 +1,358 @@
+"""
+Organization configurations for multi-agent system.
+
+Defines 5 organizations with their models, tools, workspaces, and restrictions.
+"""
+
+from .schemas import OrgType, SecurityProfile, WorkspaceMode
+
+# =============================================================================
+# ORGANIZATION CONFIGURATIONS
+# =============================================================================
+
+ORG_CONFIGS = {
+    # -------------------------------------------------------------------------
+    # DevOrg - Development / Pipelines-as-Code
+    # -------------------------------------------------------------------------
+    OrgType.DEV: {
+        "id": "dev-org",
+        "name": "DevOrg",
+        "description": "Entwicklung, Code-Reviews, Pipeline-Konfigurationen",
+        "model_primary": "glm-4.7:cloud",
+        "model_secondary": "qwen3-coder:cloud",
+        "security_profile": SecurityProfile.STANDARD,
+        "workspaces": [
+            {"path": "/projects/dev", "mode": WorkspaceMode.WRITER, "name": "Development"},
+        ],
+        "tools": [
+            "fs_read",
+            "fs_write",
+            "fs_list",
+            "git_status",
+            "git_diff",
+            "git_patch",
+            "test_run",
+        ],
+        "tools_requiring_approval": ["fs_write", "git_patch"],
+        "denials": [
+            ("shell", "*", "Shell-Zugriff ist für DevOrg nicht erlaubt"),
+            ("workspace", "/projects/ops/*", "Kein Zugriff auf Ops-Workspace"),
+            ("workspace", "/projects/studio/*", "Kein Zugriff auf Studio-Workspace"),
+            ("tool", "ci_trigger", "CI/CD-Trigger nicht erlaubt"),
+            ("tool", "deploy_service", "Deployments nicht erlaubt"),
+        ],
+    },
+    # -------------------------------------------------------------------------
+    # OpsOrg - Operations / CI/CD & Render-Ausführung
+    # -------------------------------------------------------------------------
+    OrgType.OPS: {
+        "id": "ops-org",
+        "name": "OpsOrg",
+        "description": "CI/CD-Pipelines, Deployments, Render-Jobs",
+        "model_primary": "kimi-k2.5:cloud",
+        "model_secondary": "minimax-m2.1:cloud",
+        "security_profile": SecurityProfile.POWER,
+        "workspaces": [
+            {"path": "/projects/ops", "mode": WorkspaceMode.WRITER, "name": "Operations"},
+        ],
+        "tools": [
+            "fs_read",
+            "fs_list",
+            "ci_trigger",
+            "deploy_service",
+            "rollback_service",
+            "render_job_submit",
+            "render_job_status",
+            "shell_run",
+        ],
+        "tools_requiring_approval": [
+            "deploy_service",
+            "rollback_service",
+            "shell_run",
+        ],
+        "shell_allowlist": [
+            "kubectl",
+            "docker",
+            "systemctl status",
+            "journalctl",
+            "df",
+            "free",
+            "top -b -n 1",
+        ],
+        "denials": [
+            ("workspace", "/projects/dev/*", "Kein Schreibzugriff auf Dev-Repos"),
+            ("tool", "fs_write", "Code-Änderungen nur über DevOrg"),
+            ("tool", "git_patch", "Code-Änderungen nur über DevOrg"),
+        ],
+    },
+    # -------------------------------------------------------------------------
+    # ResearchOrg - Recherche via SearXNG
+    # -------------------------------------------------------------------------
+    OrgType.RESEARCH: {
+        "id": "research-org",
+        "name": "ResearchOrg",
+        "description": "Externe Recherche, Zusammenfassungen, Research-Notes",
+        "model_primary": "gpt-oss:20b-cloud",
+        "model_secondary": "minimax-m2.1:cloud",
+        "security_profile": SecurityProfile.CONSERVATIVE,
+        "workspaces": [
+            {"path": "/data/research", "mode": WorkspaceMode.WRITER, "name": "Research Notes"},
+        ],
+        "tools": [
+            "searxng_search",
+            "fs_read",
+            "fs_write_note",
+            "fs_list_notes",
+        ],
+        "tools_requiring_approval": [],
+        "searxng_endpoint": "http://searxng:8080",
+        "denials": [
+            ("tool", "fetch", "Direkter HTTP-Zugriff nicht erlaubt"),
+            ("tool", "fetch_url", "Direkter HTTP-Zugriff nicht erlaubt"),
+            ("tool", "shell_run", "Shell-Zugriff nicht erlaubt"),
+            ("tool", "deploy_service", "Deployments nicht erlaubt"),
+            ("workspace", "/projects/*", "Kein Zugriff auf Projekt-Workspaces"),
+        ],
+    },
+    # -------------------------------------------------------------------------
+    # StudioOrg - Product / Creative / DCC-Briefings
+    # -------------------------------------------------------------------------
+    OrgType.STUDIO: {
+        "id": "studio-org",
+        "name": "StudioOrg",
+        "description": "Anforderungen, Specs, DCC-Briefings, Shot-Notes",
+        "model_primary": "kimi-k2.5:cloud",
+        "model_secondary": "gemma3:4b-cloud",
+        "security_profile": SecurityProfile.STANDARD,
+        "workspaces": [
+            {"path": "/projects/studio", "mode": WorkspaceMode.WRITER, "name": "Studio"},
+        ],
+        "tools": [
+            "fs_read",
+            "fs_write",
+            "fs_list",
+            "notes_board_create",
+            "notes_board_list",
+            "notes_board_update",
+        ],
+        "tools_requiring_approval": [],
+        "denials": [
+            ("workspace", "/projects/dev/*", "Kein Zugriff auf Dev-Workspace"),
+            ("workspace", "/projects/ops/*", "Kein Zugriff auf Ops-Workspace"),
+            ("tool", "shell_run", "Shell-Zugriff nicht erlaubt"),
+            ("tool", "ci_trigger", "CI/CD nicht erlaubt"),
+            ("tool", "deploy_service", "Deployments nicht erlaubt"),
+            ("pattern", "*.py", "Keine Python-Dateien bearbeiten"),
+            ("pattern", "*.sh", "Keine Shell-Skripte bearbeiten"),
+            ("pattern", "*.yaml", "Keine Pipeline-Configs bearbeiten"),
+        ],
+    },
+    # -------------------------------------------------------------------------
+    # OrchestratorOrg - Zentrale Steuerung
+    # -------------------------------------------------------------------------
+    OrgType.ORCHESTRATOR: {
+        "id": "orchestrator-org",
+        "name": "OrchestratorOrg",
+        "description": "Zentrale Aufgabenverteilung an Orgs",
+        "model_primary": "kimi-k2.5:cloud",
+        "model_secondary": "glm-4.7:cloud",
+        "security_profile": SecurityProfile.CONSERVATIVE,
+        "workspaces": [],  # Kein direkter Workspace-Zugriff
+        "tools": [
+            "call_dev_org",
+            "call_ops_org",
+            "call_research_org",
+            "call_studio_org",
+        ],
+        "tools_requiring_approval": [],
+        "denials": [
+            ("tool", "fs_read", "Kein direkter Dateizugriff"),
+            ("tool", "fs_write", "Kein direkter Dateizugriff"),
+            ("tool", "shell_run", "Kein Shell-Zugriff"),
+            ("tool", "fetch", "Kein Web-Zugriff"),
+        ],
+    },
+}
+
+# =============================================================================
+# SYSTEM PROMPTS (Deutsch, strikt)
+# =============================================================================
+
+ORG_SYSTEM_PROMPTS = {
+    OrgType.DEV: """Du bist DevOrg - der Entwicklungs-Agent.
+
+ROLLE:
+- Code lesen, schreiben und reviewen
+- Pipeline-Konfigurationen (YAML, JSON) erstellen und bearbeiten
+- Tests ausführen und Fehler analysieren
+- PRs und Code-Vorschläge vorbereiten
+
+ERLAUBTE AKTIONEN:
+- Dateien in /projects/dev lesen und schreiben
+- Git-Status und Diffs anzeigen
+- Patches erstellen
+- Lokale Tests ausführen
+
+VERBOTEN:
+- Shell-Befehle ausführen
+- CI/CD-Pipelines triggern
+- Deployments durchführen
+- Zugriff auf /projects/ops oder /projects/studio
+- Produktiv-Systeme direkt ändern
+
+Bei Deployment-Anfragen: Weise auf OpsOrg hin.
+Bei Research-Anfragen: Weise auf ResearchOrg hin.""",
+    OrgType.OPS: """Du bist OpsOrg - der Operations-Agent.
+
+ROLLE:
+- CI/CD-Pipelines ausführen und überwachen
+- Deployments und Rollbacks durchführen
+- Render-Jobs starten und Status prüfen
+- System-Health überwachen
+
+ERLAUBTE AKTIONEN:
+- Pipeline-Ausführung triggern
+- Services deployen (mit Approval)
+- Rollbacks durchführen (mit Approval)
+- Render-Jobs verwalten
+- Shell-Befehle aus Allowlist (kubectl, docker, systemctl status)
+- Logs in /projects/ops schreiben
+
+VERBOTEN:
+- Code in Dev-Repos ändern
+- Pipeline-Definitionen selbst schreiben (kommt von DevOrg)
+- Spontane Skript-Änderungen
+- Zugriff auf /projects/dev zum Schreiben
+
+Pipeline-Code muss IMMER aus dem Repo kommen, nie spontan erstellt.""",
+    OrgType.RESEARCH: """Du bist ResearchOrg - der Recherche-Agent.
+
+ROLLE:
+- Externe Informationen über SearXNG suchen
+- Quellen analysieren und zusammenfassen
+- Research-Notes schreiben und organisieren
+
+ERLAUBTE AKTIONEN:
+- SearXNG-Suchen durchführen
+- Notes in /data/research schreiben
+- Recherche-Ergebnisse strukturieren
+
+VERBOTEN:
+- Direkte HTTP-Requests ins Internet (nur SearXNG)
+- Shell-Befehle
+- Deployments
+- Zugriff auf /projects/* Verzeichnisse
+- Code schreiben oder ändern
+
+Alle Web-Zugriffe NUR über searxng_search().
+Zitiere immer deine Quellen.""",
+    OrgType.STUDIO: """Du bist StudioOrg - der Creative/Product-Agent.
+
+ROLLE:
+- Anforderungen und User-Stories schreiben
+- Feature-Spezifikationen erstellen
+- DCC-Briefings und Shot-Notes verfassen
+- Roadmaps und Dokumentation pflegen
+
+ERLAUBTE AKTIONEN:
+- Dokumente in /projects/studio lesen und schreiben
+- Notes-Board verwalten (create/list/update)
+- Specs, Briefings, Notizen erstellen
+
+VERBOTEN:
+- Code-Dateien (*.py, *.sh, *.js) bearbeiten
+- Pipeline-Configs (*.yaml, *.yml) ändern
+- Shell-Befehle
+- Deployments oder CI/CD
+- Zugriff auf /projects/dev oder /projects/ops
+
+Du schreibst NUR Dokumentation und Spezifikationen, KEINEN Code.""",
+    OrgType.ORCHESTRATOR: """Du bist OrchestratorOrg - der zentrale Koordinator.
+
+ROLLE:
+- User-Aufgaben analysieren und in Teilaufgaben zerlegen
+- Aufgaben an die passenden Orgs delegieren
+- Ergebnisse zusammenführen und präsentieren
+
+VERFÜGBARE ORGS:
+- DevOrg: Code, Pipelines, Tests → call_dev_org()
+- OpsOrg: Deployments, CI/CD, Render → call_ops_org()
+- ResearchOrg: Web-Recherche, Zusammenfassungen → call_research_org()
+- StudioOrg: Specs, Briefings, Dokumentation → call_studio_org()
+
+ERLAUBTE AKTIONEN:
+- Orgs aufrufen mit klaren Aufgaben
+- Ergebnisse zusammenfassen
+- Rückfragen stellen
+
+VERBOTEN:
+- Direkter Dateizugriff
+- Shell-Befehle
+- Web-Requests
+- Eigene Tool-Ausführung (nur Org-Calls)
+
+Delegiere IMMER an die passende Org. Führe NIE selbst aus.""",
+}
+
+
+def get_org_config(org_type: OrgType) -> dict:
+    """Get configuration for an organization."""
+    return ORG_CONFIGS.get(org_type, {})
+
+
+def get_org_prompt(org_type: OrgType) -> str:
+    """Get system prompt for an organization."""
+    return ORG_SYSTEM_PROMPTS.get(org_type, "")
+
+
+def get_all_org_ids() -> list[str]:
+    """Get all organization IDs."""
+    return [cfg["id"] for cfg in ORG_CONFIGS.values()]
+
+
+# SQL to seed org configurations
+def generate_org_seed_sql() -> str:
+    """Generate SQL to seed organization configurations."""
+    statements = []
+
+    for org_type, config in ORG_CONFIGS.items():
+        prompt = ORG_SYSTEM_PROMPTS.get(org_type, "").replace("'", "''")
+        desc = config.get("description", "").replace("'", "''")
+
+        statements.append(f"""
+INSERT INTO orgs (id, name, org_type, description, model_primary, model_secondary, system_prompt)
+VALUES (
+    '{config["id"]}',
+    '{config["name"]}',
+    '{org_type.value}',
+    '{desc}',
+    '{config["model_primary"]}',
+    '{config.get("model_secondary", "")}',
+    '{prompt}'
+) ON CONFLICT (id) DO UPDATE SET
+    model_primary = EXCLUDED.model_primary,
+    model_secondary = EXCLUDED.model_secondary,
+    system_prompt = EXCLUDED.system_prompt;
+""")
+
+        # Tool permissions
+        for tool in config.get("tools", []):
+            req_approval = tool in config.get("tools_requiring_approval", [])
+            statements.append(f"""
+INSERT INTO org_tools (org_id, tool_name, enabled, requires_approval)
+VALUES ('{config["id"]}', '{tool}', TRUE, {str(req_approval).upper()})
+ON CONFLICT (org_id, tool_name) DO UPDATE SET
+    enabled = TRUE, requires_approval = {str(req_approval).upper()};
+""")
+
+        # Denials
+        for denial in config.get("denials", []):
+            denial_type, pattern, reason = denial
+            reason_escaped = reason.replace("'", "''")
+            statements.append(f"""
+INSERT INTO org_denials (org_id, denial_type, pattern, reason)
+VALUES ('{config["id"]}', '{denial_type}', '{pattern}', '{reason_escaped}')
+ON CONFLICT (org_id, denial_type, pattern) DO NOTHING;
+""")
+
+    return "\n".join(statements)

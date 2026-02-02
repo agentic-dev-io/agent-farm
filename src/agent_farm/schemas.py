@@ -13,6 +13,22 @@ class AgentRole(str, Enum):
     RESEARCH = "research"
     ORGANIZER = "organizer"
     ASSISTANT = "assistant"
+    # Org-specific roles
+    DEVELOPER = "developer"
+    OPERATOR = "operator"
+    RESEARCHER = "researcher"
+    CREATIVE = "creative"
+    ORCHESTRATOR = "orchestrator"
+
+
+class OrgType(str, Enum):
+    """Organization types for multi-agent system."""
+
+    DEV = "dev"  # Development / Pipelines-as-Code
+    OPS = "ops"  # Operations / CI/CD & Render
+    RESEARCH = "research"  # Recherche via SearXNG
+    STUDIO = "studio"  # Product / Creative / DCC-Briefings
+    ORCHESTRATOR = "orchestrator"  # Zentrale Steuerung
 
 
 class WorkspaceMode(str, Enum):
@@ -139,3 +155,50 @@ SECURITY_DEFAULTS = {
         "default_workspace_mode": WorkspaceMode.OPERATOR,
     },
 }
+
+# SQL for organization tables
+ORG_TABLES_SQL = """
+-- Organization definitions
+CREATE TABLE IF NOT EXISTS orgs (
+    id VARCHAR PRIMARY KEY,
+    name VARCHAR NOT NULL,
+    org_type VARCHAR NOT NULL,
+    description VARCHAR,
+    model_primary VARCHAR NOT NULL,
+    model_secondary VARCHAR,
+    system_prompt TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT now()
+);
+
+-- Organization allowed tools
+CREATE TABLE IF NOT EXISTS org_tools (
+    org_id VARCHAR NOT NULL,
+    tool_name VARCHAR NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    requires_approval BOOLEAN DEFAULT FALSE,
+    PRIMARY KEY (org_id, tool_name)
+);
+
+-- Organization forbidden actions (explicit denials)
+CREATE TABLE IF NOT EXISTS org_denials (
+    org_id VARCHAR NOT NULL,
+    denial_type VARCHAR NOT NULL,
+    pattern VARCHAR NOT NULL,
+    reason VARCHAR,
+    PRIMARY KEY (org_id, denial_type, pattern)
+);
+
+-- Inter-org communication log
+CREATE TABLE IF NOT EXISTS org_calls (
+    id INTEGER PRIMARY KEY,
+    session_id VARCHAR NOT NULL,
+    caller_org VARCHAR NOT NULL,
+    target_org VARCHAR NOT NULL,
+    task VARCHAR NOT NULL,
+    status VARCHAR DEFAULT 'pending',
+    result JSON,
+    created_at TIMESTAMP DEFAULT now(),
+    completed_at TIMESTAMP
+);
+"""
