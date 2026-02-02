@@ -32,6 +32,10 @@ ORG_CONFIGS = {
             "git_diff",
             "git_patch",
             "test_run",
+            # Smart Extensions (JSONata)
+            "json_transform",
+            "dev_validate_config",
+            "dev_extract_deps",
         ],
         "tools_requiring_approval": ["fs_write", "git_patch"],
         "denials": [
@@ -64,6 +68,11 @@ ORG_CONFIGS = {
             "render_job_submit",
             "render_job_status",
             "shell_run",
+            # Smart Extensions (Bitfilters + Radio)
+            "ops_is_duplicate",
+            "ops_add_to_filter",
+            "ops_subscribe_ci",
+            "ops_publish_status",
         ],
         "tools_requiring_approval": [
             "deploy_service",
@@ -103,6 +112,17 @@ ORG_CONFIGS = {
             "fs_read",
             "fs_write_note",
             "fs_list_notes",
+            # Smart Extensions (JSONata + Lindel + LSH)
+            "json_transform",
+            "research_parse_api",
+            "research_normalize_results",
+            "research_encode_embedding",
+            "research_decode_embedding",
+            "research_fingerprint",
+            "research_find_duplicates",
+            "research_minhash_signature",
+            "research_index_doc",
+            "research_find_similar_docs",
         ],
         "tools_requiring_approval": [],
         "searxng_endpoint": "http://searxng:8080",
@@ -134,6 +154,11 @@ ORG_CONFIGS = {
             "notes_board_create",
             "notes_board_list",
             "notes_board_update",
+            # Smart Extensions (Lindel + Radio)
+            "studio_index_asset",
+            "studio_find_similar",
+            "studio_asset_order",
+            "studio_collab_event",
         ],
         "tools_requiring_approval": [],
         "denials": [
@@ -163,6 +188,14 @@ ORG_CONFIGS = {
             "call_ops_org",
             "call_research_org",
             "call_studio_org",
+            # Smart Extensions (DuckPGQ + Radio)
+            "orchestrator_call_chain",
+            "orchestrator_add_dependency",
+            "orchestrator_get_ready_tasks",
+            "orchestrator_broadcast",
+            "orchestrator_listen",
+            "orchestrator_subscribe",
+            "smart_route",
         ],
         "tools_requiring_approval": [],
         "denials": [
@@ -193,6 +226,11 @@ ERLAUBTE AKTIONEN:
 - Patches erstellen
 - Lokale Tests ausführen
 
+SMART EXTENSIONS (JSONata):
+- json_transform(): JSON-Daten transformieren mit JSONata-Expressions
+- dev_validate_config(): Config-Dateien gegen Schema validieren
+- dev_extract_deps(): Dependencies aus package.json/pyproject.toml extrahieren
+
 VERBOTEN:
 - Shell-Befehle ausführen
 - CI/CD-Pipelines triggern
@@ -218,6 +256,12 @@ ERLAUBTE AKTIONEN:
 - Shell-Befehle aus Allowlist (kubectl, docker, systemctl status)
 - Logs in /projects/ops schreiben
 
+SMART EXTENSIONS (Bitfilters + Radio):
+- ops_is_duplicate(): Prüfen ob Log-Eintrag bereits existiert (Bloom-Filter)
+- ops_add_to_filter(): Einträge zum Dedup-Filter hinzufügen
+- ops_subscribe_ci(): CI/CD Events in Echtzeit empfangen
+- ops_publish_status(): Deployment-Status broadcasten
+
 VERBOTEN:
 - Code in Dev-Repos ändern
 - Pipeline-Definitionen selbst schreiben (kommt von DevOrg)
@@ -231,11 +275,20 @@ ROLLE:
 - Externe Informationen über SearXNG suchen
 - Quellen analysieren und zusammenfassen
 - Research-Notes schreiben und organisieren
+- Dokument-Ähnlichkeit und Duplikate erkennen
 
 ERLAUBTE AKTIONEN:
 - SearXNG-Suchen durchführen
 - Notes in /data/research schreiben
 - Recherche-Ergebnisse strukturieren
+
+SMART EXTENSIONS (JSONata + Lindel + LSH):
+- research_parse_api(): API-Responses intelligent parsen
+- research_normalize_results(): Suchergebnisse aus verschiedenen Quellen normalisieren
+- research_encode_embedding(): Embeddings mit Hilbert-Kurve für schnelle Suche kodieren
+- research_index_doc(): Dokumente für Similarity-Search indexieren
+- research_find_similar_docs(): Ähnliche Dokumente per MinHash finden
+- research_fingerprint(): Text-Fingerprint für Duplikaterkennung
 
 VERBOTEN:
 - Direkte HTTP-Requests ins Internet (nur SearXNG)
@@ -253,11 +306,18 @@ ROLLE:
 - Feature-Spezifikationen erstellen
 - DCC-Briefings und Shot-Notes verfassen
 - Roadmaps und Dokumentation pflegen
+- Assets organisieren und verwalten
 
 ERLAUBTE AKTIONEN:
 - Dokumente in /projects/studio lesen und schreiben
 - Notes-Board verwalten (create/list/update)
 - Specs, Briefings, Notizen erstellen
+
+SMART EXTENSIONS (Lindel + Radio):
+- studio_index_asset(): Assets mit Feature-Vektoren indexieren
+- studio_find_similar(): Ähnliche Assets per Hilbert-Distanz finden
+- studio_asset_order(): Assets räumlich clustern (Morton-Encoding)
+- studio_collab_event(): Real-time Collaboration Events publishen
 
 VERBOTEN:
 - Code-Dateien (*.py, *.sh, *.js) bearbeiten
@@ -273,6 +333,7 @@ ROLLE:
 - User-Aufgaben analysieren und in Teilaufgaben zerlegen
 - Aufgaben an die passenden Orgs delegieren
 - Ergebnisse zusammenführen und präsentieren
+- Task-Dependencies verwalten und optimieren
 
 VERFÜGBARE ORGS:
 - DevOrg: Code, Pipelines, Tests → call_dev_org()
@@ -280,10 +341,19 @@ VERFÜGBARE ORGS:
 - ResearchOrg: Web-Recherche, Zusammenfassungen → call_research_org()
 - StudioOrg: Specs, Briefings, Dokumentation → call_studio_org()
 
+SMART EXTENSIONS (DuckPGQ + Radio):
+- orchestrator_call_chain(): Org-Call-Historie als Graph visualisieren
+- orchestrator_add_dependency(): Task-Abhängigkeiten definieren
+- orchestrator_get_ready_tasks(): Alle Tasks ohne Blocker finden
+- orchestrator_broadcast(): Tasks an Agents broadcasten
+- orchestrator_listen(): Auf Agent-Responses warten
+- smart_route(): Auto-Route zu passender Extension basierend auf Org+Task
+
 ERLAUBTE AKTIONEN:
 - Orgs aufrufen mit klaren Aufgaben
 - Ergebnisse zusammenfassen
 - Rückfragen stellen
+- Task-Graph verwalten
 
 VERBOTEN:
 - Direkter Dateizugriff

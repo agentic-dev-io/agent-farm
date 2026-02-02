@@ -285,6 +285,118 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
                 'params', tool_params,
                 'org', org_id_param
             )
+
+        -- =========================================
+        -- SMART EXTENSION TOOLS (09_smart_extensions.sql)
+        -- =========================================
+
+        -- JSONata Tools
+        WHEN tool_name = 'json_transform'
+            THEN json_transform(
+                tool_params,
+                json_extract_string(tool_params, '$.expression')
+            )
+        WHEN tool_name = 'research_parse_api'
+            THEN research_parse_api(tool_params)
+        WHEN tool_name = 'dev_validate_config'
+            THEN dev_validate_config(
+                tool_params,
+                json_extract_string(tool_params, '$.required_fields')
+            )
+
+        -- DuckPGQ Tools (OrchestratorOrg)
+        WHEN tool_name = 'orchestrator_call_chain'
+            THEN orchestrator_call_chain(session_id_param)
+        WHEN tool_name = 'orchestrator_add_dependency'
+            THEN orchestrator_add_dependency(
+                json_extract_string(tool_params, '$.task_id'),
+                json_extract_string(tool_params, '$.depends_on'),
+                json_extract_string(tool_params, '$.type')
+            )
+        WHEN tool_name = 'orchestrator_get_ready_tasks'
+            THEN (SELECT json_group_array(json_object('id', id, 'task', task))
+                  FROM orchestrator_get_ready_tasks())
+
+        -- Bitfilters Tools (OpsOrg)
+        WHEN tool_name = 'ops_is_duplicate'
+            THEN ops_is_duplicate(
+                json_extract_string(tool_params, '$.filter'),
+                json_extract_string(tool_params, '$.entry')
+            )::VARCHAR
+
+        -- Lindel Tools (ResearchOrg + StudioOrg)
+        WHEN tool_name = 'research_encode_embedding'
+            THEN research_encode_embedding(
+                json_extract(tool_params, '$.embedding')::DOUBLE[]
+            )::VARCHAR
+        WHEN tool_name = 'studio_index_asset'
+            THEN studio_index_asset(
+                json_extract_string(tool_params, '$.asset_id'),
+                json_extract(tool_params, '$.features')::DOUBLE[]
+            )
+        WHEN tool_name = 'studio_find_similar'
+            THEN (SELECT json_group_array(json_object(
+                    'asset_id', asset_id,
+                    'distance', distance
+                  ))
+                  FROM studio_find_similar(
+                      json_extract(tool_params, '$.features')::DOUBLE[],
+                      json_extract(tool_params, '$.limit')::INTEGER
+                  ))
+
+        -- LSH Tools (ResearchOrg)
+        WHEN tool_name = 'research_index_doc'
+            THEN research_index_doc(
+                json_extract_string(tool_params, '$.doc_id'),
+                json_extract_string(tool_params, '$.title'),
+                json_extract_string(tool_params, '$.content')
+            )
+        WHEN tool_name = 'research_find_similar_docs'
+            THEN (SELECT json_group_array(json_object(
+                    'doc_id', doc_id,
+                    'title', doc_title,
+                    'similarity', similarity
+                  ))
+                  FROM research_find_similar_docs(
+                      json_extract_string(tool_params, '$.content'),
+                      json_extract(tool_params, '$.threshold')::DOUBLE,
+                      json_extract(tool_params, '$.limit')::INTEGER
+                  ))
+
+        -- Radio Tools (Real-time)
+        WHEN tool_name = 'orchestrator_broadcast'
+            THEN orchestrator_broadcast(
+                json_extract_string(tool_params, '$.channel'),
+                tool_params
+            )
+        WHEN tool_name = 'orchestrator_listen'
+            THEN orchestrator_listen(
+                json_extract(tool_params, '$.timeout_ms')::INTEGER
+            )
+        WHEN tool_name = 'ops_publish_status'
+            THEN ops_publish_status(
+                json_extract_string(tool_params, '$.channel'),
+                tool_params
+            )
+        WHEN tool_name = 'studio_collab_event'
+            THEN studio_collab_event(
+                json_extract_string(tool_params, '$.project'),
+                json_extract_string(tool_params, '$.event_type'),
+                tool_params
+            )
+
+        -- Smart Router (auto-detect best extension)
+        WHEN tool_name = 'smart_route'
+            THEN smart_route(
+                org_id_param,
+                json_extract_string(tool_params, '$.task_type'),
+                tool_params
+            )
+
+        -- =========================================
+        -- LEGACY ORG TOOLS
+        -- =========================================
+
         -- SearXNG
         WHEN tool_name = 'searxng_search'
             THEN searxng_search(
