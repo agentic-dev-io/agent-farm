@@ -68,13 +68,41 @@ INSERT INTO mcp_app_templates (id, name, template) VALUES
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ title | default(value="App") }}</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              surface: { 50: "#1a1a1a", 100: "#141414", 200: "#0d0d0d", 300: "#0a0a0a" },
+              accent: { DEFAULT: "#22c55e", dim: "#16a34a", glow: "#4ade80" },
+              muted: { DEFAULT: "#737373", light: "#a3a3a3" }
+            },
+            borderRadius: { pill: "9999px" },
+            backdropBlur: { glass: "20px" }
+          }
+        }
+      }
+    </script>
     <style>
-        .card-hover { transition: all 0.2s ease; }
-        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.1); }
+      body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro", "Segoe UI", sans-serif; }
+      .glass { background: rgba(26, 26, 26, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.08); }
+      .card-hover { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+      .card-hover:hover { transform: translateY(-2px); box-shadow: 0 0 30px rgba(34, 197, 94, 0.15); border-color: rgba(34, 197, 94, 0.4); }
+      .pill { padding: 6px 14px; border-radius: 9999px; font-size: 13px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); transition: all 0.15s; }
+      .pill:hover { background: rgba(255,255,255,0.1); }
+      .pill.active { background: rgba(34, 197, 94, 0.2); border-color: rgba(34, 197, 94, 0.5); color: #4ade80; }
+      .glow-btn { background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); box-shadow: 0 0 20px rgba(34, 197, 94, 0.3); }
+      .glow-btn:hover { box-shadow: 0 0 30px rgba(34, 197, 94, 0.5); }
+      .glow-btn:disabled { background: #333; box-shadow: none; opacity: 0.5; }
+      ::selection { background: rgba(34, 197, 94, 0.3); }
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
     </style>
 </head>
-<body class="h-full bg-gray-50 text-gray-900">
-    <div id="app" class="min-h-full p-6">
+<body class="h-full bg-surface-300 text-white">
+    <div id="app" class="min-h-full p-8">
         {{ content }}
     </div>
     <script>
@@ -98,39 +126,61 @@ INSERT INTO mcp_app_templates (id, name, template) VALUES
 
 INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 ('design-choices', 'Design Choices', 'base', '
-<div class="max-w-4xl mx-auto">
-    <div class="mb-8">
-        <h1 class="text-2xl font-bold">{{ title }}</h1>
-        {% if description %}<p class="mt-2 text-gray-600">{{ description }}</p>{% endif %}
+<div class="max-w-5xl mx-auto">
+    <!-- Header -->
+    <div class="mb-10">
+        <h1 class="text-2xl font-semibold tracking-tight">{{ title }}</h1>
+        {% if description %}<p class="mt-2 text-muted-light text-sm">{{ description }}</p>{% endif %}
     </div>
 
+    <!-- Mode Pills (like Seedance) -->
+    {% if modes %}
+    <div class="flex gap-2 mb-8">
+        {% for mode in modes %}<button class="pill" data-mode="{{ mode.id }}">{{ mode.label }}</button>{% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Options Grid -->
     <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3" id="options">
         {% for opt in options %}
-        <div class="card-hover bg-white rounded-xl p-6 border-2 border-transparent cursor-pointer hover:border-indigo-400"
+        <div class="card-hover glass rounded-2xl p-5 cursor-pointer border border-white/5"
              data-id="{{ opt.id }}" onclick="selectOption(''{{ opt.id }}'')">
-            {% if opt.icon %}<div class="text-3xl mb-3">{{ opt.icon }}</div>{% endif %}
-            <h3 class="font-semibold text-lg">{{ opt.title }}</h3>
-            {% if opt.description %}<p class="mt-2 text-sm text-gray-600">{{ opt.description }}</p>{% endif %}
+            {% if opt.preview %}
+            <div class="aspect-video rounded-xl overflow-hidden mb-4 bg-surface-100">
+                <img src="{{ opt.preview }}" class="w-full h-full object-cover" alt="{{ opt.title }}">
+            </div>
+            {% endif %}
+            {% if opt.icon %}<div class="text-2xl mb-3">{{ opt.icon }}</div>{% endif %}
+            <h3 class="font-medium text-white/90">{{ opt.title }}</h3>
+            {% if opt.description %}<p class="mt-1.5 text-sm text-muted">{{ opt.description }}</p>{% endif %}
             {% if opt.tags %}
-            <div class="mt-4 flex flex-wrap gap-2">
-                {% for tag in opt.tags %}<span class="px-2 py-1 text-xs rounded-full bg-indigo-100 text-indigo-700">{{ tag }}</span>{% endfor %}
+            <div class="mt-4 flex flex-wrap gap-1.5">
+                {% for tag in opt.tags %}<span class="pill text-xs">{{ tag }}</span>{% endfor %}
             </div>
             {% endif %}
         </div>
         {% endfor %}
     </div>
 
-    <div class="mt-8 hidden" id="rationale-box">
-        <label class="block text-sm font-medium mb-2">Begründung (optional)</label>
-        <textarea id="rationale" rows="3" class="w-full rounded-lg border-gray-300 p-3" placeholder="Warum diese Wahl?"></textarea>
-    </div>
-
-    <div class="mt-8 flex justify-end gap-4">
-        <button onclick="MCP.close()" class="px-4 py-2 text-gray-600 hover:text-gray-900">Abbrechen</button>
-        <button id="submit-btn" disabled onclick="submitChoice()"
-                class="px-6 py-2 bg-indigo-500 text-white rounded-lg font-medium disabled:opacity-50 hover:bg-indigo-600">
-            Auswählen
-        </button>
+    <!-- Input Bar (Seedance style) -->
+    <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4">
+        <div class="glass rounded-2xl p-4">
+            <div class="flex items-center gap-3">
+                <div class="flex gap-2">
+                    <button class="pill text-xs opacity-60">Template</button>
+                </div>
+                <input type="text" id="rationale"
+                       class="flex-1 bg-transparent border-none outline-none text-sm text-white/80 placeholder-muted"
+                       placeholder="Describe your choice or add context...">
+                <div class="flex items-center gap-2">
+                    <button onclick="MCP.close()" class="pill text-xs text-muted hover:text-white">Esc</button>
+                    <button id="submit-btn" disabled onclick="submitChoice()"
+                            class="glow-btn px-5 py-2 rounded-xl text-sm font-medium text-white disabled:cursor-not-allowed">
+                        Select
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 </div>') ON CONFLICT (id) DO NOTHING;
 
@@ -161,31 +211,31 @@ function submitChoice() {
 
 INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 ('profile-choices', 'Profile Choices', 'base', '
-<div class="max-w-3xl mx-auto">
-    <div class="mb-8 text-center">
-        <h1 class="text-3xl font-bold">Willkommen!</h1>
-        <p class="mt-2 text-gray-600">Wähle dein Profil, um loszulegen</p>
+<div class="max-w-3xl mx-auto pt-12">
+    <div class="mb-12 text-center">
+        <h1 class="text-4xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">Willkommen</h1>
+        <p class="mt-3 text-muted">Wähle dein Profil</p>
     </div>
 
-    <div class="grid gap-6 md:grid-cols-2" id="profiles">
+    <div class="grid gap-4 md:grid-cols-2" id="profiles">
         {% for p in profiles %}
-        <div class="card-hover bg-white rounded-2xl p-8 border-2 border-transparent cursor-pointer hover:border-indigo-400 text-center"
+        <div class="card-hover glass rounded-2xl p-6 cursor-pointer text-center border border-white/5"
              data-id="{{ p.id }}" onclick="selectProfile(''{{ p.id }}'')">
-            {% if p.icon %}<div class="text-5xl mb-4">{{ p.icon }}</div>{% endif %}
-            <h3 class="font-bold text-xl">{{ p.name }}</h3>
-            {% if p.description %}<p class="mt-2 text-gray-600">{{ p.description }}</p>{% endif %}
+            {% if p.icon %}<div class="text-4xl mb-4">{{ p.icon }}</div>{% endif %}
+            <h3 class="font-semibold text-lg text-white/90">{{ p.name }}</h3>
+            {% if p.description %}<p class="mt-2 text-sm text-muted">{{ p.description }}</p>{% endif %}
             {% if p.focus %}
-            <div class="mt-4 flex flex-wrap justify-center gap-2">
-                {% for f in p.focus %}<span class="px-3 py-1 text-sm rounded-full bg-gray-100">{{ f }}</span>{% endfor %}
+            <div class="mt-4 flex flex-wrap justify-center gap-1.5">
+                {% for f in p.focus %}<span class="pill text-xs">{{ f }}</span>{% endfor %}
             </div>
             {% endif %}
         </div>
         {% endfor %}
     </div>
 
-    <div class="mt-8 flex justify-center">
+    <div class="mt-10 flex justify-center">
         <button id="submit-btn" disabled onclick="submitProfile()"
-                class="px-8 py-3 bg-indigo-500 text-white rounded-xl font-medium disabled:opacity-50 hover:bg-indigo-600">
+                class="glow-btn px-8 py-3 rounded-xl font-medium text-white disabled:cursor-not-allowed">
             Profil auswählen
         </button>
     </div>
@@ -217,12 +267,12 @@ function submitProfile() {
 INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 ('document-viewer', 'Document Viewer', 'base', '
 <div class="max-w-4xl mx-auto">
-    <div class="mb-4 flex justify-between items-center">
-        <h1 class="text-xl font-bold">{{ title | default(value="Dokument") }}</h1>
-        <button onclick="MCP.close()" class="text-gray-500 hover:text-gray-700">Schließen</button>
+    <div class="mb-6 flex justify-between items-center">
+        <h1 class="text-xl font-semibold text-white/90">{{ title | default(value="Dokument") }}</h1>
+        <button onclick="MCP.close()" class="pill text-xs">Schließen</button>
     </div>
-    <div class="bg-white rounded-xl p-6 prose max-w-none" id="content">
-        {{ content }}
+    <div class="glass rounded-2xl p-6" id="content">
+        <article class="prose prose-invert prose-sm max-w-none">{{ content }}</article>
     </div>
 </div>') ON CONFLICT (id) DO NOTHING;
 
@@ -233,11 +283,11 @@ INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
 ('chart-viewer', 'Chart Viewer', 'base', '
 <div class="max-w-4xl mx-auto">
-    <div class="mb-4 flex justify-between items-center">
-        <h1 class="text-xl font-bold">{{ title | default(value="Chart") }}</h1>
-        <button onclick="MCP.close()" class="text-gray-500 hover:text-gray-700">Schließen</button>
+    <div class="mb-6 flex justify-between items-center">
+        <h1 class="text-xl font-semibold text-white/90">{{ title | default(value="Chart") }}</h1>
+        <button onclick="MCP.close()" class="pill text-xs">Schließen</button>
     </div>
-    <div class="bg-white rounded-xl p-6">
+    <div class="glass rounded-2xl p-6">
         <canvas id="chart" width="800" height="400"></canvas>
     </div>
 </div>') ON CONFLICT (id) DO NOTHING;
@@ -252,15 +302,280 @@ if (chartData && chartData.labels && chartData.values) {
     const max = Math.max(...chartData.values);
     const barWidth = 60;
     const gap = 20;
-    ctx.fillStyle = "#6366f1";
+    ctx.fillStyle = "#22c55e";
     chartData.values.forEach((v, i) => {
         const h = (v / max) * 350;
         ctx.fillRect(i * (barWidth + gap) + 50, 400 - h, barWidth, h);
-        ctx.fillStyle = "#374151";
+        ctx.fillStyle = "#a3a3a3";
         ctx.font = "12px sans-serif";
         ctx.fillText(chartData.labels[i], i * (barWidth + gap) + 50, 420);
-        ctx.fillStyle = "#6366f1";
+        ctx.fillStyle = "#22c55e";
     });
+}') ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
+-- VIBE CODING TEMPLATE - Smart code generation interface
+-- =============================================================================
+
+INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
+('vibe-coder', 'Vibe Coder', 'base', '
+<div class="max-w-6xl mx-auto">
+    <!-- Header with context pills -->
+    <div class="flex items-center gap-4 mb-6">
+        <div class="flex gap-2">
+            {% for ctx in context %}<span class="pill active text-xs">{{ ctx }}</span>{% endfor %}
+        </div>
+        <div class="flex-1"></div>
+        <span class="text-xs text-muted">{{ model | default(value="auto") }}</span>
+    </div>
+
+    <!-- Code Preview Area -->
+    <div class="glass rounded-2xl overflow-hidden mb-6">
+        <div class="flex items-center justify-between px-4 py-2 border-b border-white/5">
+            <div class="flex gap-2">
+                {% for f in files %}<button class="pill text-xs" data-file="{{ f.path }}">{{ f.name }}</button>{% endfor %}
+            </div>
+            <div class="flex gap-2">
+                <button class="pill text-xs" onclick="copyCode()">Copy</button>
+                <button class="pill text-xs" onclick="applyCode()">Apply</button>
+            </div>
+        </div>
+        <pre class="p-4 text-sm overflow-auto max-h-96"><code id="code-preview" class="text-accent-glow">{{ code }}</code></pre>
+    </div>
+
+    <!-- Diff View (if changes) -->
+    {% if diff %}
+    <div class="glass rounded-2xl p-4 mb-6">
+        <div class="text-xs text-muted mb-2">Changes</div>
+        <pre class="text-sm"><code>{{ diff }}</code></pre>
+    </div>
+    {% endif %}
+
+    <!-- Action Bar -->
+    <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-3xl px-4">
+        <div class="glass rounded-2xl p-4">
+            <div class="flex items-center gap-3">
+                <div class="flex gap-2">
+                    <button class="pill text-xs {{ mode_code }}" data-mode="code">Code</button>
+                    <button class="pill text-xs {{ mode_refactor }}" data-mode="refactor">Refactor</button>
+                    <button class="pill text-xs {{ mode_test }}" data-mode="test">Test</button>
+                    <button class="pill text-xs {{ mode_docs }}" data-mode="docs">Docs</button>
+                </div>
+                <input type="text" id="prompt"
+                       class="flex-1 bg-transparent border-none outline-none text-sm text-white/80 placeholder-muted"
+                       placeholder="Describe what you want to build..." value="{{ prompt }}">
+                <button id="submit-btn" onclick="submitVibe()"
+                        class="glow-btn px-5 py-2 rounded-xl text-sm font-medium text-white">
+                    Generate
+                </button>
+            </div>
+        </div>
+    </div>
+</div>') ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mcp_app_templates (id, name, template) VALUES
+('vibe-coder-script', 'Vibe Coder Script', '
+let currentMode = "code";
+document.querySelectorAll("[data-mode]").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-mode]").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentMode = btn.dataset.mode;
+    });
+});
+function copyCode() {
+    navigator.clipboard.writeText(document.getElementById("code-preview").textContent);
+}
+function applyCode() {
+    MCP.submit({ action: "apply", code: document.getElementById("code-preview").textContent });
+}
+function submitVibe() {
+    MCP.submit({ action: "generate", mode: currentMode, prompt: document.getElementById("prompt").value });
+}') ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
+-- SOLID DOCS TEMPLATE - Documentation generation/editing
+-- =============================================================================
+
+INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
+('solid-docs', 'Solid Docs', 'base', '
+<div class="max-w-5xl mx-auto">
+    <!-- Doc Type Selector -->
+    <div class="flex gap-2 mb-8">
+        <button class="pill {{ type_readme }}" data-type="readme">README</button>
+        <button class="pill {{ type_api }}" data-type="api">API Docs</button>
+        <button class="pill {{ type_guide }}" data-type="guide">Guide</button>
+        <button class="pill {{ type_changelog }}" data-type="changelog">Changelog</button>
+        <button class="pill {{ type_spec }}" data-type="spec">Spec</button>
+    </div>
+
+    <!-- Editor Area -->
+    <div class="glass rounded-2xl overflow-hidden">
+        <div class="flex border-b border-white/5">
+            <button class="px-4 py-2 text-sm text-white/80 border-b-2 border-accent" data-view="edit">Edit</button>
+            <button class="px-4 py-2 text-sm text-muted" data-view="preview">Preview</button>
+            <button class="px-4 py-2 text-sm text-muted" data-view="diff">Diff</button>
+        </div>
+        <div class="p-4">
+            <textarea id="doc-content" rows="20"
+                class="w-full bg-transparent border-none outline-none text-sm text-white/90 font-mono resize-none"
+                placeholder="# Documentation">{{ content }}</textarea>
+        </div>
+    </div>
+
+    <!-- Metadata -->
+    <div class="mt-6 glass rounded-2xl p-4">
+        <div class="grid grid-cols-3 gap-4 text-sm">
+            <div>
+                <span class="text-muted">Target:</span>
+                <span class="ml-2 text-white/80">{{ target | default(value="README.md") }}</span>
+            </div>
+            <div>
+                <span class="text-muted">Format:</span>
+                <span class="ml-2 text-white/80">{{ format | default(value="markdown") }}</span>
+            </div>
+            <div>
+                <span class="text-muted">Status:</span>
+                <span class="ml-2 pill text-xs active">{{ status | default(value="draft") }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-2xl px-4">
+        <div class="glass rounded-2xl p-4">
+            <div class="flex items-center gap-3">
+                <button class="pill text-xs" onclick="MCP.close()">Cancel</button>
+                <div class="flex-1"></div>
+                <button class="pill text-xs" onclick="saveDraft()">Save Draft</button>
+                <button class="glow-btn px-5 py-2 rounded-xl text-sm font-medium text-white" onclick="commitDoc()">
+                    Commit
+                </button>
+            </div>
+        </div>
+    </div>
+</div>') ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mcp_app_templates (id, name, template) VALUES
+('solid-docs-script', 'Solid Docs Script', '
+function saveDraft() {
+    MCP.submit({ action: "draft", content: document.getElementById("doc-content").value });
+}
+function commitDoc() {
+    MCP.submit({ action: "commit", content: document.getElementById("doc-content").value });
+}
+document.querySelectorAll("[data-type]").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-type]").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+    });
+});') ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
+-- APPROVAL FLOW TEMPLATE - Human-in-the-loop decisions
+-- =============================================================================
+
+INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
+('approval-flow', 'Approval Flow', 'base', '
+<div class="max-w-2xl mx-auto">
+    <!-- Alert Header -->
+    <div class="glass rounded-2xl p-6 mb-6 border-l-4 border-{{ severity | default(value="accent") }}">
+        <div class="flex items-start gap-4">
+            <div class="text-3xl">{{ icon | default(value="⚠️") }}</div>
+            <div>
+                <h2 class="text-lg font-semibold text-white">{{ title }}</h2>
+                <p class="mt-1 text-sm text-muted">{{ description }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details -->
+    <div class="glass rounded-2xl p-4 mb-6">
+        <div class="text-xs text-muted uppercase tracking-wider mb-3">Details</div>
+        <div class="space-y-2 text-sm">
+            {% for item in details %}
+            <div class="flex justify-between">
+                <span class="text-muted">{{ item.label }}</span>
+                <span class="text-white/80 font-mono">{{ item.value }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Risk Assessment -->
+    {% if risk %}
+    <div class="glass rounded-2xl p-4 mb-6">
+        <div class="text-xs text-muted uppercase tracking-wider mb-3">Risk Assessment</div>
+        <div class="flex items-center gap-4">
+            <div class="flex-1 h-2 bg-surface-100 rounded-full overflow-hidden">
+                <div class="h-full bg-{{ risk_color | default(value="accent") }}" style="width: {{ risk }}%"></div>
+            </div>
+            <span class="text-sm text-muted">{{ risk }}%</span>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Actions -->
+    <div class="flex gap-4">
+        <button onclick="deny()" class="flex-1 py-3 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition">
+            Deny
+        </button>
+        <button onclick="approve()" class="flex-1 py-3 rounded-xl glow-btn text-white">
+            Approve
+        </button>
+    </div>
+</div>') ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mcp_app_templates (id, name, template) VALUES
+('approval-flow-script', 'Approval Flow Script', '
+function approve() { MCP.submit({ decision: "approved" }); }
+function deny() { MCP.submit({ decision: "denied" }); }') ON CONFLICT (id) DO NOTHING;
+
+-- =============================================================================
+-- TERMINAL/SHELL TEMPLATE - Command execution interface
+-- =============================================================================
+
+INSERT INTO mcp_app_templates (id, name, base_template, template) VALUES
+('terminal', 'Terminal', 'base', '
+<div class="max-w-4xl mx-auto">
+    <div class="glass rounded-2xl overflow-hidden">
+        <!-- Tab Bar -->
+        <div class="flex items-center px-4 py-2 border-b border-white/5 bg-surface-200">
+            <div class="flex gap-1.5">
+                <div class="w-3 h-3 rounded-full bg-red-500/80"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-500/80"></div>
+                <div class="w-3 h-3 rounded-full bg-green-500/80"></div>
+            </div>
+            <div class="flex-1 text-center text-xs text-muted">{{ cwd | default(value="~") }}</div>
+        </div>
+
+        <!-- Output Area -->
+        <div id="output" class="p-4 h-96 overflow-auto font-mono text-sm">
+            {% for line in output %}
+            <div class="{{ line.class | default(value=''text-white/80'') }}">{{ line.text }}</div>
+            {% endfor %}
+        </div>
+
+        <!-- Input -->
+        <div class="flex items-center px-4 py-3 border-t border-white/5 bg-surface-200">
+            <span class="text-accent mr-2">$</span>
+            <input type="text" id="cmd"
+                   class="flex-1 bg-transparent border-none outline-none text-sm text-white font-mono"
+                   placeholder="Enter command..." autofocus>
+            <button onclick="runCmd()" class="pill text-xs">Run</button>
+        </div>
+    </div>
+</div>') ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO mcp_app_templates (id, name, template) VALUES
+('terminal-script', 'Terminal Script', '
+document.getElementById("cmd").addEventListener("keydown", e => {
+    if (e.key === "Enter") runCmd();
+});
+function runCmd() {
+    const cmd = document.getElementById("cmd").value;
+    if (!cmd) return;
+    MCP.submit({ command: cmd });
 }') ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
@@ -272,6 +587,10 @@ INSERT INTO mcp_apps (id, name, app_type, description, org_id, template_id) VALU
 ('app.onboarding.profile-choices', 'Profile Selection', 'choice', 'Onboarding Profil-Auswahl', NULL, 'profile-choices'),
 ('app.studio.document', 'Document Viewer', 'viewer', 'Dokument-Anzeige', 'studio-org', 'document-viewer'),
 ('app.studio.chart', 'Chart Viewer', 'viewer', 'Diagramm-Anzeige', 'studio-org', 'chart-viewer'),
+('app.dev.vibe-coder', 'Vibe Coder', 'editor', 'Smart code generation', 'dev-org', 'vibe-coder'),
+('app.studio.solid-docs', 'Solid Docs', 'editor', 'Documentation generator', 'studio-org', 'solid-docs'),
+('app.ops.terminal', 'Terminal', 'shell', 'Command execution', 'ops-org', 'terminal'),
+('app.approval', 'Approval Flow', 'approval', 'Human-in-the-loop decisions', NULL, 'approval-flow'),
 ('app.settings', 'Settings', 'config', 'Benutzer-Einstellungen', NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
@@ -524,4 +843,123 @@ CREATE OR REPLACE MACRO execute_studio_app_tool(session_id_param, tool_name, too
         )
         ELSE json_object('error', 'Unknown tool', 'tool', tool_name)
     END
+);
+
+-- =============================================================================
+-- VIBE CODER TOOLS (DevOrg)
+-- =============================================================================
+
+CREATE OR REPLACE MACRO dev_open_vibe_coder(session_id_param, context_array, code, prompt) AS (
+    SELECT open_app('app.dev.vibe-coder', session_id_param, json_object(
+        'context', json(context_array),
+        'code', code,
+        'prompt', prompt,
+        'files', json_array()
+    ))
+);
+
+CREATE OR REPLACE MACRO dev_vibe_generate(session_id_param, mode, prompt, files_json) AS (
+    SELECT open_app('app.dev.vibe-coder', session_id_param, json_object(
+        'mode', mode,
+        'prompt', prompt,
+        'files', json(files_json),
+        'context', json_array(mode)
+    ))
+);
+
+-- =============================================================================
+-- SOLID DOCS TOOLS (StudioOrg)
+-- =============================================================================
+
+CREATE OR REPLACE MACRO studio_open_docs(session_id_param, doc_type, content, target) AS (
+    SELECT open_app('app.studio.solid-docs', session_id_param, json_object(
+        'type', doc_type,
+        'content', content,
+        'target', target,
+        'status', 'draft'
+    ))
+);
+
+CREATE OR REPLACE MACRO studio_generate_readme(session_id_param, project_info) AS (
+    SELECT open_app('app.studio.solid-docs', session_id_param, json_object(
+        'type', 'readme',
+        'content', '',
+        'target', 'README.md',
+        'project', json(project_info),
+        'type_readme', 'active'
+    ))
+);
+
+-- =============================================================================
+-- TERMINAL TOOLS (OpsOrg)
+-- =============================================================================
+
+CREATE OR REPLACE MACRO ops_open_terminal(session_id_param, cwd, output_lines) AS (
+    SELECT open_app('app.ops.terminal', session_id_param, json_object(
+        'cwd', cwd,
+        'output', json(output_lines)
+    ))
+);
+
+-- =============================================================================
+-- APPROVAL FLOW TOOLS (Cross-Org)
+-- =============================================================================
+
+CREATE OR REPLACE MACRO request_approval(session_id_param, title, description, details_json, risk_percent) AS (
+    SELECT open_app('app.approval', session_id_param, json_object(
+        'title', title,
+        'description', description,
+        'details', json(details_json),
+        'risk', risk_percent,
+        'icon', CASE
+            WHEN risk_percent > 70 THEN '🚨'
+            WHEN risk_percent > 40 THEN '⚠️'
+            ELSE '📋'
+        END,
+        'severity', CASE
+            WHEN risk_percent > 70 THEN 'red-500'
+            WHEN risk_percent > 40 THEN 'yellow-500'
+            ELSE 'accent'
+        END
+    ))
+);
+
+-- =============================================================================
+-- EXTENDED TOOL SCHEMAS
+-- =============================================================================
+
+CREATE OR REPLACE MACRO dev_org_apps_tools_schema() AS (
+    SELECT json_array(
+        json_object('type', 'function', 'function', json_object(
+            'name', 'open_vibe_coder',
+            'description', 'Open smart code generation UI',
+            'parameters', json_object('type', 'object', 'properties', json_object(
+                'context', json_object('type', 'array', 'items', json_object('type', 'string')),
+                'code', json_object('type', 'string'),
+                'prompt', json_object('type', 'string')
+            ), 'required', json_array('prompt'))
+        )),
+        json_object('type', 'function', 'function', json_object(
+            'name', 'vibe_generate',
+            'description', 'Generate code with mode (code/refactor/test/docs)',
+            'parameters', json_object('type', 'object', 'properties', json_object(
+                'mode', json_object('type', 'string', 'enum', json_array('code', 'refactor', 'test', 'docs')),
+                'prompt', json_object('type', 'string'),
+                'files', json_object('type', 'array')
+            ), 'required', json_array('mode', 'prompt'))
+        ))
+    )
+);
+
+CREATE OR REPLACE MACRO ops_org_apps_tools_schema() AS (
+    SELECT json_array(
+        json_object('type', 'function', 'function', json_object(
+            'name', 'open_terminal',
+            'description', 'Open terminal interface',
+            'parameters', json_object('type', 'object', 'properties', json_object(
+                'cwd', json_object('type', 'string'),
+                'output', json_object('type', 'array')
+            ))
+        ))
+    )
 );
