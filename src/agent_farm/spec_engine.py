@@ -160,7 +160,8 @@ class SpecEngine:
                     current.append(char)
             elif char == ";" and not in_string:
                 stmt = "".join(current).strip()
-                if stmt and not stmt.startswith("--"):
+                # Use _has_non_comment_content to properly check for real SQL
+                if stmt and self._has_non_comment_content(stmt):
                     statements.append(stmt)
                 current = []
             else:
@@ -169,7 +170,7 @@ class SpecEngine:
 
         if current:
             stmt = "".join(current).strip()
-            if stmt and not stmt.startswith("--"):
+            if stmt and self._has_non_comment_content(stmt):
                 statements.append(stmt)
 
         return statements
@@ -817,6 +818,478 @@ class SpecEngine:
     def is_initialized(self) -> bool:
         """Check if the Spec Engine is initialized."""
         return self._initialized
+
+    # =========================================================================
+    # Meta-Learning Methods (Self-Improvement)
+    # =========================================================================
+
+    def record_usage(self, spec_id: int, was_success: bool) -> dict[str, Any]:
+        """
+        Record that a spec was used and whether it was successful.
+        Updates use_count and success_rate.
+
+        Args:
+            spec_id: ID of the spec that was used
+            was_success: Whether the usage was successful
+
+        Returns:
+            Dict with updated stats
+        """
+        try:
+            # Get current values
+            result = self.con.execute(
+                "SELECT use_count, success_rate FROM spec_objects WHERE id = ?",
+                [spec_id]
+            ).fetchone()
+
+            if not result:
+                return {"error": f"Spec {spec_id} not found"}
+
+            use_count, success_rate = result
+
+            # Calculate new success rate
+            if use_count == 0:
+                new_success_rate = 1.0 if was_success else 0.0
+            else:
+                new_success_rate = (success_rate * use_count + (1.0 if was_success else 0.0)) / (use_count + 1)
+
+            # Update
+            self.con.execute(
+                """
+                UPDATE spec_objects
+                SET use_count = use_count + 1,
+                    success_rate = ?,
+                    updated_at = current_timestamp
+                WHERE id = ?
+                """,
+                [new_success_rate, spec_id]
+            )
+
+            return {
+                "spec_id": spec_id,
+                "use_count": use_count + 1,
+                "success_rate": new_success_rate
+            }
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def record_feedback(
+        self,
+        spec_id: int,
+        feedback_type: str,
+        score: float = 0.0,
+        context: dict | None = None,
+        outcome: dict | None = None,
+        notes: str | None = None,
+        session_id: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Record feedback on a spec's usage.
+
+        Args:
+            spec_id: ID of the spec
+            feedback_type: Type of feedback ('success', 'failure', 'error', 'user_correction')
+            score: Numeric score (-1.0 to 1.0)
+            context: JSON context of the usage
+            outcome: JSON outcome/result
+            notes: Human-readable notes
+            session_id: Session ID
+
+        Returns:
+            Dict with feedback ID
+        """
+        try:
+            feedback_id = self.con.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_feedback"
+            ).fetchone()[0]
+
+            self.con.execute(
+                """
+                INSERT INTO spec_feedback (id, spec_id, session_id, feedback_type, context, outcome, score, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    feedback_id,
+                    spec_id,
+                    session_id,
+                    feedback_type,
+                    json.dumps(context) if context else None,
+                    json.dumps(outcome) if outcome else None,
+                    score,
+                    notes,
+                ]
+            )
+
+            # Also update usage stats
+            was_success = feedback_type == "success" or score > 0.5
+            self.record_usage(spec_id, was_success)
+
+            return {"feedback_id": feedback_id}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def create_relationship(
+        self,
+        from_id: int,
+        to_id: int,
+        rel_type: str,
+        metadata: dict | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create a relationship between two specs.
+
+        Args:
+            from_id: Source spec ID
+            to_id: Target spec ID
+            rel_type: Relationship type ('uses', 'extends', 'requires', 'implements', 'derived_from')
+            metadata: Optional metadata about the relationship
+
+        Returns:
+            Dict with relationship ID
+        """
+        try:
+            rel_id = self.con.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_relationships"
+            ).fetchone()[0]
+
+            self.con.execute(
+                """
+                INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT (from_id, to_id, rel_type) DO UPDATE SET metadata = EXCLUDED.metadata
+                """,
+                [rel_id, from_id, to_id, rel_type, json.dumps(metadata) if metadata else None]
+            )
+
+            return {"relationship_id": rel_id}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_related_specs(self, spec_id: int) -> list[dict[str, Any]]:
+        """
+        Get all specs related to a given spec.
+
+        Args:
+            spec_id: Spec ID to find relations for
+
+        Returns:
+            List of related specs with relationship info
+        """
+        try:
+            query = """
+                SELECT
+                    r.rel_type,
+                    'outgoing' as direction,
+                    o.id, o.kind, o.name, o.version, o.status, o.summary
+                FROM spec_relationships r
+                JOIN spec_objects o ON o.id = r.to_id
+                WHERE r.from_id = ?
+                UNION ALL
+                SELECT
+                    r.rel_type,
+                    'incoming' as direction,
+                    o.id, o.kind, o.name, o.version, o.status, o.summary
+                FROM spec_relationships r
+                JOIN spec_objects o ON o.id = r.from_id
+                WHERE r.to_id = ?
+            """
+            result = self.con.execute(query, [spec_id, spec_id]).fetchall()
+
+            columns = ["rel_type", "direction", "id", "kind", "name", "version", "status", "summary"]
+            return [dict(zip(columns, row)) for row in result]
+
+        except Exception as e:
+            return []
+
+    def get_spec_performance(self, spec_id: int) -> dict[str, Any]:
+        """
+        Get performance metrics for a spec.
+
+        Args:
+            spec_id: Spec ID
+
+        Returns:
+            Dict with performance metrics
+        """
+        try:
+            query = """
+                SELECT
+                    o.id, o.kind, o.name,
+                    o.use_count,
+                    o.success_rate,
+                    o.confidence,
+                    COUNT(f.id) AS feedback_count,
+                    AVG(f.score) AS avg_score,
+                    COUNT(a.id) AS adaptation_count
+                FROM spec_objects o
+                LEFT JOIN spec_feedback f ON f.spec_id = o.id
+                LEFT JOIN spec_adaptations a ON a.spec_id = o.id
+                WHERE o.id = ?
+                GROUP BY o.id, o.kind, o.name, o.use_count, o.success_rate, o.confidence
+            """
+            result = self.con.execute(query, [spec_id]).fetchone()
+
+            if not result:
+                return {"error": f"Spec {spec_id} not found"}
+
+            columns = ["id", "kind", "name", "use_count", "success_rate", "confidence",
+                       "feedback_count", "avg_score", "adaptation_count"]
+            return dict(zip(columns, result))
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_specs_needing_improvement(
+        self,
+        min_usage: int = 5,
+        max_success_rate: float = 0.5,
+    ) -> list[dict[str, Any]]:
+        """
+        Get specs that have low success rates and might need improvement.
+
+        Args:
+            min_usage: Minimum usage count to consider
+            max_success_rate: Maximum success rate to include
+
+        Returns:
+            List of specs needing improvement
+        """
+        try:
+            query = """
+                SELECT
+                    id, kind, name, version, status,
+                    use_count, success_rate, confidence,
+                    summary
+                FROM spec_objects
+                WHERE use_count >= ?
+                  AND success_rate < ?
+                  AND status = 'active'
+                ORDER BY success_rate ASC, use_count DESC
+            """
+            result = self.con.execute(query, [min_usage, max_success_rate]).fetchall()
+
+            columns = ["id", "kind", "name", "version", "status",
+                       "use_count", "success_rate", "confidence", "summary"]
+            return [dict(zip(columns, row)) for row in result]
+
+        except Exception as e:
+            return []
+
+    def record_adaptation(
+        self,
+        spec_id: int,
+        adaptation_type: str,
+        reason: str,
+        changes: dict,
+        metrics_before: dict | None = None,
+        metrics_after: dict | None = None,
+    ) -> dict[str, Any]:
+        """
+        Record an adaptation made to a spec.
+
+        Args:
+            spec_id: Original spec ID
+            adaptation_type: Type ('parameter_tune', 'prompt_improve', 'tool_add', 'merge', 'split')
+            reason: Why the adaptation was made
+            changes: JSON describing the changes
+            metrics_before: Metrics before adaptation
+            metrics_after: Metrics after adaptation
+
+        Returns:
+            Dict with adaptation ID
+        """
+        try:
+            adaptation_id = self.con.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_adaptations"
+            ).fetchone()[0]
+
+            self.con.execute(
+                """
+                INSERT INTO spec_adaptations (id, spec_id, adaptation_type, reason, changes, metrics_before, metrics_after)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    adaptation_id,
+                    spec_id,
+                    adaptation_type,
+                    reason,
+                    json.dumps(changes),
+                    json.dumps(metrics_before) if metrics_before else None,
+                    json.dumps(metrics_after) if metrics_after else None,
+                ]
+            )
+
+            return {"adaptation_id": adaptation_id}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def record_learning(
+        self,
+        learning_type: str,
+        category: str,
+        description: str,
+        evidence: list | None = None,
+        confidence: float = 0.5,
+        application: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Record a learning insight from the meta-learning system.
+
+        Args:
+            learning_type: Type ('pattern', 'insight', 'rule', 'preference')
+            category: Category ('agent', 'skill', 'workflow', 'general')
+            description: What was learned
+            evidence: List of evidence (spec_ids, feedback_ids)
+            confidence: Confidence score (0.0 - 1.0)
+            application: How this should be applied
+
+        Returns:
+            Dict with learning ID
+        """
+        try:
+            learning_id = self.con.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_learning"
+            ).fetchone()[0]
+
+            self.con.execute(
+                """
+                INSERT INTO spec_learning (id, learning_type, category, description, evidence, confidence, application)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    learning_id,
+                    learning_type,
+                    category,
+                    description,
+                    json.dumps(evidence) if evidence else None,
+                    confidence,
+                    application,
+                ]
+            )
+
+            return {"learning_id": learning_id}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_top_learnings(self, limit: int = 10) -> list[dict[str, Any]]:
+        """
+        Get top learning insights by confidence.
+
+        Args:
+            limit: Maximum number of learnings to return
+
+        Returns:
+            List of learning insights
+        """
+        try:
+            query = """
+                SELECT
+                    id, learning_type, category,
+                    description, confidence,
+                    application,
+                    created_at
+                FROM spec_learning
+                WHERE confidence >= 0.5
+                ORDER BY confidence DESC, created_at DESC
+                LIMIT ?
+            """
+            result = self.con.execute(query, [limit]).fetchall()
+
+            columns = ["id", "learning_type", "category", "description",
+                       "confidence", "application", "created_at"]
+            specs = []
+            for row in result:
+                spec = dict(zip(columns, row))
+                if spec.get("created_at"):
+                    spec["created_at"] = str(spec["created_at"])
+                specs.append(spec)
+            return specs
+
+        except Exception as e:
+            return []
+
+    # =========================================================================
+    # Provenance Methods (Source Tracking)
+    # =========================================================================
+
+    def set_upstream_source(
+        self,
+        spec_id: int,
+        source_url: str,
+        upstream_version: str,
+        source_ref: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Set upstream source for a spec.
+
+        Args:
+            spec_id: Spec ID
+            source_url: URL of the upstream source
+            upstream_version: Version in upstream
+            source_ref: Commit hash or other reference
+
+        Returns:
+            Dict with update status
+        """
+        try:
+            self.con.execute(
+                """
+                UPDATE spec_objects
+                SET source_type = 'upstream',
+                    source_url = ?,
+                    upstream_version = ?,
+                    source_ref = ?,
+                    sync_status = 'synced',
+                    last_sync = current_timestamp,
+                    updated_at = current_timestamp
+                WHERE id = ?
+                """,
+                [source_url, upstream_version, source_ref, spec_id]
+            )
+            return {"updated": True, "sync_status": "synced"}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_specs_needing_sync(self) -> list[dict[str, Any]]:
+        """
+        Get specs that need to be synced with their upstream source.
+
+        Returns:
+            List of specs with outdated or conflicting sync status
+        """
+        try:
+            query = """
+                SELECT
+                    id, kind, name, version,
+                    source_type, source_url, upstream_version,
+                    last_sync, sync_status,
+                    summary
+                FROM spec_objects
+                WHERE source_type = 'upstream'
+                  AND sync_status IN ('outdated', 'conflict')
+                ORDER BY last_sync ASC NULLS FIRST
+            """
+            result = self.con.execute(query).fetchall()
+
+            columns = ["id", "kind", "name", "version", "source_type",
+                       "source_url", "upstream_version", "last_sync",
+                       "sync_status", "summary"]
+            specs = []
+            for row in result:
+                spec = dict(zip(columns, row))
+                if spec.get("last_sync"):
+                    spec["last_sync"] = str(spec["last_sync"])
+                specs.append(spec)
+            return specs
+
+        except Exception as e:
+            return []
 
 
 # Global spec engine instance

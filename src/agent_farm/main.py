@@ -20,6 +20,15 @@ from pathlib import Path
 import duckdb
 
 
+def _has_non_comment_content(stmt: str) -> bool:
+    """Check if a SQL statement has any non-comment content."""
+    for ln in stmt.split("\n"):
+        ln = ln.strip()
+        if ln and not ln.startswith("--"):
+            return True
+    return False
+
+
 def split_sql_statements(sql_content: str) -> list[str]:
     """Split SQL content into statements, respecting string literals."""
     statements = []
@@ -46,7 +55,7 @@ def split_sql_statements(sql_content: str) -> list[str]:
                 current.append(char)
         elif char == ";" and not in_string:
             stmt = "".join(current).strip()
-            if stmt and not stmt.startswith("--"):
+            if stmt and _has_non_comment_content(stmt):
                 statements.append(stmt)
             current = []
         else:
@@ -55,7 +64,7 @@ def split_sql_statements(sql_content: str) -> list[str]:
 
     if current:
         stmt = "".join(current).strip()
-        if stmt and not stmt.startswith("--"):
+        if stmt and _has_non_comment_content(stmt):
             statements.append(stmt)
 
     return statements
@@ -162,19 +171,16 @@ def load_core_extensions(con: duckdb.DuckDBPyConnection) -> list[str]:
         ("httpserver", False),
         # Advanced Data Structures
         ("jsonata", False),  # JSONata query/transform
-        ("duckpgq", False),  # Property graphs
-        ("bitfilters", False),  # Bloom/MinHash
-        ("lindel", False),  # Linear algebra
-        # AI/LLM Stack
-        ("vss", False),  # Vector Similarity Search
+        ("duckpgq", False),  # Property graphs for spec relationships
+        ("bitfilters", False),  # Bloom/MinHash for similarity
+        ("lindel", False),  # Space-filling curves
         # Text Processing
         ("htmlstringify", False),  # HTML to text
-        ("lsh", False),  # Locality Sensitive Hashing
+        ("lsh", False),  # Locality Sensitive Hashing for dedup
         # Extended Data Sources
         ("shellfs", False),  # Shell commands as tables
-        ("zipfs", False),  # ZIP archive access
         # Real-time (optional)
-        ("radio", False),  # WebSocket & Redis PubSub
+        ("radio", False),  # WebSocket & Redis PubSub for sync
     ]
 
     loaded = []
@@ -199,94 +205,41 @@ def load_core_extensions(con: duckdb.DuckDBPyConnection) -> list[str]:
     return loaded
 
 
-def create_legacy_tables(con: duckdb.DuckDBPyConnection) -> None:
+def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
     """
-    Create legacy agent config tables for backwards compatibility.
-    These will eventually be migrated to the Spec Engine.
+    Create runtime tables for session management, auditing, and approvals.
+    These are operational tables, not specifications (specs live in spec_objects).
     """
     con.sql("""
-        -- Agent configuration (legacy - migrate to spec_objects)
-        CREATE TABLE IF NOT EXISTS agent_config (
-            id VARCHAR PRIMARY KEY,
-            name VARCHAR NOT NULL DEFAULT 'Desktop Agent',
-            role VARCHAR NOT NULL DEFAULT 'assistant',
-            security_profile VARCHAR NOT NULL DEFAULT 'standard',
-            model_backend VARCHAR NOT NULL DEFAULT 'ollama_local',
-            model_name VARCHAR DEFAULT 'llama3.2',
-            consent_given BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMP DEFAULT now(),
-            updated_at TIMESTAMP DEFAULT now()
-        );
-
-        -- Workspace definitions
-        CREATE TABLE IF NOT EXISTS workspaces (
-            id VARCHAR PRIMARY KEY,
-            agent_id VARCHAR,
-            path VARCHAR NOT NULL,
-            name VARCHAR,
-            mode VARCHAR NOT NULL DEFAULT 'readOnly',
-            allowed_patterns VARCHAR[],
-            denied_patterns VARCHAR[]
-        );
-
-        -- MCP server configs for agent
-        CREATE TABLE IF NOT EXISTS agent_mcp_servers (
-            id VARCHAR PRIMARY KEY,
-            agent_id VARCHAR,
-            transport VARCHAR DEFAULT 'stdio',
-            endpoint VARCHAR,
-            command VARCHAR,
-            args VARCHAR[],
-            enabled BOOLEAN DEFAULT TRUE,
-            allowed_tools VARCHAR[],
-            disallowed_tools VARCHAR[]
-        );
-
-        -- Security policy
-        CREATE TABLE IF NOT EXISTS security_policy (
-            agent_id VARCHAR PRIMARY KEY,
-            shell_enabled BOOLEAN DEFAULT FALSE,
-            shell_allowlist VARCHAR[],
-            shell_blocklist VARCHAR[] DEFAULT [
-                'rm -rf', 'rm -r /', 'mkfs', 'dd if=', ':(){:|:&};:',
-                'chmod -R 777', 'curl | sh', 'wget | sh', '> /dev/sd'
-            ],
-            web_enabled BOOLEAN DEFAULT TRUE,
-            allowed_domains VARCHAR[],
-            blocked_domains VARCHAR[],
-            sensitive_patterns VARCHAR[] DEFAULT [
-                '*.env', '.env*', '*credentials*', '*secret*',
-                '*.pem', '*.key', '*password*'
-            ]
-        );
-
-        -- Audit log
+        -- Audit log for all agent actions
         CREATE TABLE IF NOT EXISTS audit_log (
             id INTEGER PRIMARY KEY,
             session_id VARCHAR NOT NULL,
             timestamp TIMESTAMP DEFAULT now(),
-            entry_type VARCHAR NOT NULL,
+            entry_type VARCHAR NOT NULL,  -- 'tool_call', 'spec_access', 'feedback', 'learning'
+            spec_id INTEGER,              -- Reference to spec_objects if relevant
             tool_name VARCHAR,
             parameters JSON,
             result JSON,
-            decision VARCHAR,
+            decision VARCHAR,             -- 'allowed', 'denied', 'approved', 'rejected'
             violations VARCHAR[]
         );
 
-        -- Session state
+        -- Session state for active agent sessions
         CREATE TABLE IF NOT EXISTS agent_sessions (
             id VARCHAR PRIMARY KEY,
-            agent_id VARCHAR,
+            agent_spec_id INTEGER,        -- Reference to spec_objects (kind='agent')
             started_at TIMESTAMP DEFAULT now(),
             status VARCHAR DEFAULT 'active',
+            context JSON DEFAULT '{}',    -- Session context/state
             messages JSON DEFAULT '[]'
         );
 
-        -- Pending approvals
+        -- Pending approvals for sensitive operations
         CREATE TABLE IF NOT EXISTS pending_approvals (
             id INTEGER PRIMARY KEY,
             session_id VARCHAR NOT NULL,
-            agent_id VARCHAR,
+            spec_id INTEGER,              -- Reference to spec_objects
             tool_name VARCHAR NOT NULL,
             tool_params JSON,
             reason VARCHAR,
@@ -296,43 +249,12 @@ def create_legacy_tables(con: duckdb.DuckDBPyConnection) -> None:
             resolved_by VARCHAR
         );
 
-        -- Sequences
-        CREATE SEQUENCE IF NOT EXISTS audit_seq START 1;
-
-        -- Organization tables (legacy - migrate to spec_objects kind='org')
-        CREATE TABLE IF NOT EXISTS orgs (
-            id VARCHAR PRIMARY KEY,
-            name VARCHAR NOT NULL,
-            org_type VARCHAR NOT NULL,
-            description VARCHAR,
-            model_primary VARCHAR NOT NULL,
-            model_secondary VARCHAR,
-            system_prompt TEXT NOT NULL,
-            enabled BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT now()
-        );
-
-        CREATE TABLE IF NOT EXISTS org_tools (
-            org_id VARCHAR NOT NULL,
-            tool_name VARCHAR NOT NULL,
-            enabled BOOLEAN DEFAULT TRUE,
-            requires_approval BOOLEAN DEFAULT FALSE,
-            PRIMARY KEY (org_id, tool_name)
-        );
-
-        CREATE TABLE IF NOT EXISTS org_denials (
-            org_id VARCHAR NOT NULL,
-            denial_type VARCHAR NOT NULL,
-            pattern VARCHAR NOT NULL,
-            reason VARCHAR,
-            PRIMARY KEY (org_id, denial_type, pattern)
-        );
-
+        -- Inter-organization calls (for swarm coordination)
         CREATE TABLE IF NOT EXISTS org_calls (
             id INTEGER PRIMARY KEY,
             session_id VARCHAR NOT NULL,
-            caller_org VARCHAR NOT NULL,
-            target_org VARCHAR NOT NULL,
+            caller_spec_id INTEGER NOT NULL,  -- Reference to spec_objects (kind='org')
+            target_spec_id INTEGER NOT NULL,  -- Reference to spec_objects (kind='org')
             task VARCHAR NOT NULL,
             status VARCHAR DEFAULT 'pending',
             result JSON,
@@ -340,20 +262,26 @@ def create_legacy_tables(con: duckdb.DuckDBPyConnection) -> None:
             completed_at TIMESTAMP
         );
 
-        -- Notes board for StudioOrg
+        -- Notes board for collaboration
         CREATE TABLE IF NOT EXISTS notes_board (
             id VARCHAR PRIMARY KEY,
             project VARCHAR NOT NULL,
             title VARCHAR NOT NULL,
-            content TEXT,
+            content VARCHAR,
             note_type VARCHAR DEFAULT 'general',
             status VARCHAR DEFAULT 'open',
-            created_by VARCHAR DEFAULT 'studio-org',
+            created_by VARCHAR DEFAULT 'system',
+            spec_refs JSON DEFAULT '[]',  -- References to related specs
             created_at TIMESTAMP DEFAULT now(),
             updated_at TIMESTAMP DEFAULT now()
         );
+
+        -- Sequences
+        CREATE SEQUENCE IF NOT EXISTS audit_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS approval_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS org_call_seq START 1;
     """)
-    print("Legacy tables created.", file=sys.stderr)
+    print("Runtime tables created.", file=sys.stderr)
 
 
 def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
@@ -388,26 +316,7 @@ def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
             total_loaded += loaded
             print(f"Loaded {loaded} macros from {sql_file}", file=sys.stderr)
     else:
-        # Fallback to legacy macros.sql
-        macros_path = os.path.join(os.path.dirname(__file__), "macros.sql")
-        if os.path.exists(macros_path):
-            with open(macros_path, "r", encoding="utf-8") as f:
-                sql_script = f.read()
-            statements = split_sql_statements(sql_script)
-            for statement in statements:
-                lines = [
-                    ln
-                    for ln in statement.split("\n")
-                    if ln.strip() and not ln.strip().startswith("--")
-                ]
-                if not lines:
-                    continue
-                try:
-                    con.sql(statement)
-                    total_loaded += 1
-                except Exception as e:
-                    print(f"Error executing macro: {e}", file=sys.stderr)
-            print(f"Loaded {total_loaded} macros from macros.sql", file=sys.stderr)
+        print("Warning: sql/ directory not found, no macros loaded", file=sys.stderr)
 
     return total_loaded
 
@@ -470,9 +379,9 @@ def main():
             )
         """)
 
-    # 4. Create Legacy Tables
-    print("Creating legacy tables...", file=sys.stderr)
-    create_legacy_tables(con)
+    # 4. Create Runtime Tables (sessions, audit, approvals)
+    print("Creating runtime tables...", file=sys.stderr)
+    create_runtime_tables(con)
 
     # 5. Load SQL Macros
     print("Loading SQL macros...", file=sys.stderr)

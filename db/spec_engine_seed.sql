@@ -721,9 +721,114 @@ VALUES (70, 70, '{
 }', NULL);
 
 -- ============================================================================
--- Update sequences to avoid conflicts
+-- 9. MCP Server Specs
 -- ============================================================================
 
-SELECT setval('spec_objects_seq', 100);
-SELECT setval('spec_docs_seq', 100);
-SELECT setval('spec_payloads_seq', 100);
+-- Agent Farm MCP Server (self-reference)
+INSERT INTO spec_objects (id, kind, name, version, status, summary, source_type, source_url)
+VALUES (80, 'mcp_server', 'agent-farm', '1.0.0', 'active',
+        'The Agent Farm MCP server - DuckDB-powered Spec Engine',
+        'internal', 'https://github.com/bjoernbethge/agent-farm');
+
+INSERT INTO spec_payloads (id, object_id, payload, schema_ref)
+VALUES (80, 80, '{
+    "name": "agent-farm",
+    "transport": "stdio",
+    "command": "agent-farm",
+    "args": [],
+    "capabilities": {
+        "tools": true,
+        "resources": true,
+        "prompts": true
+    },
+    "tools": [
+        "spec_list", "spec_get", "spec_search",
+        "render_from_template", "validate_payload_against_spec"
+    ]
+}', NULL);
+
+-- Filesystem MCP Server
+INSERT INTO spec_objects (id, kind, name, version, status, summary, source_type, source_url)
+VALUES (81, 'mcp_server', 'filesystem', '1.0.0', 'active',
+        'File system operations MCP server',
+        'upstream', 'https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem');
+
+INSERT INTO spec_payloads (id, object_id, payload, schema_ref)
+VALUES (81, 81, '{
+    "name": "filesystem",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"],
+    "capabilities": {
+        "tools": true,
+        "resources": true
+    },
+    "tools": [
+        "read_file", "write_file", "list_directory",
+        "create_directory", "move_file", "search_files"
+    ]
+}', NULL);
+
+-- Brave Search MCP Server
+INSERT INTO spec_objects (id, kind, name, version, status, summary, source_type, source_url)
+VALUES (82, 'mcp_server', 'brave-search', '1.0.0', 'active',
+        'Brave Search API MCP server for web search',
+        'upstream', 'https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search');
+
+INSERT INTO spec_payloads (id, object_id, payload, schema_ref)
+VALUES (82, 82, '{
+    "name": "brave-search",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+    "env": {
+        "BRAVE_API_KEY": "${BRAVE_API_KEY}"
+    },
+    "capabilities": {
+        "tools": true
+    },
+    "tools": ["brave_web_search", "brave_local_search"]
+}', NULL);
+
+-- ============================================================================
+-- 10. Spec Relationships (how specs connect)
+-- ============================================================================
+
+-- Pia uses the DuckDB Spec Engine skill
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (1, 10, 20, 'uses', '{"context": "core capability"}');
+
+-- Pia uses the SurrealDB Memory skill
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (2, 10, 21, 'uses', '{"context": "persistent memory"}');
+
+-- Agent onboarding workflow uses agent_config_schema
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (3, 60, 1, 'requires', '{"for": "validation"}');
+
+-- Plan template is used by Pia
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (4, 10, 30, 'uses', '{"context": "plan generation"}');
+
+-- Organizations use MCP protocol
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (5, 50, 40, 'implements', '{"transport": "stdio"}');
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (6, 51, 40, 'implements', '{"transport": "stdio"}');
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (7, 52, 40, 'implements', '{"transport": "stdio"}');
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (8, 53, 40, 'implements', '{"transport": "stdio"}');
+INSERT INTO spec_relationships (id, from_id, to_id, rel_type, metadata)
+VALUES (9, 54, 40, 'implements', '{"transport": "stdio"}');
+
+-- ============================================================================
+-- Update sequences to avoid conflicts (DuckDB syntax)
+-- ============================================================================
+
+-- Note: DuckDB sequences auto-increment. We just need to ensure our seed IDs
+-- don't conflict with auto-generated ones. Using IDs 1-100 for seed data means
+-- sequences starting at 1 will eventually catch up, but that's fine since we
+-- check for existing data before seeding.
+
+-- For future inserts, use COALESCE(MAX(id), 0) + 1 or rely on sequences

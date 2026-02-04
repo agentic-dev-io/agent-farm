@@ -403,3 +403,121 @@ CREATE OR REPLACE MACRO spec_recent(limit_count) AS TABLE (
     ORDER BY updated_at DESC
     LIMIT limit_count
 );
+
+-- ============================================================================
+-- I) Self-Learning / Meta-Learning Query Macros
+-- ============================================================================
+-- NOTE: Mutation operations (INSERT/UPDATE) should be done via the Python API
+-- (SpecEngine.record_feedback, record_usage, record_adaptation, etc.)
+-- These macros are for querying learning data only.
+
+-- Get specs related to a given spec
+-- Usage: SELECT * FROM spec_related_to(10);
+CREATE OR REPLACE MACRO spec_related_to(spec_id_val) AS TABLE (
+    SELECT
+        r.rel_type,
+        o.id, o.kind, o.name, o.version, o.status, o.summary
+    FROM spec_relationships r
+    JOIN spec_objects o ON o.id = r.to_id
+    WHERE r.from_id = spec_id_val
+    UNION ALL
+    SELECT
+        r.rel_type || '_by' AS rel_type,
+        o.id, o.kind, o.name, o.version, o.status, o.summary
+    FROM spec_relationships r
+    JOIN spec_objects o ON o.id = r.from_id
+    WHERE r.to_id = spec_id_val
+);
+
+-- Get performance metrics for a spec
+-- Usage: SELECT * FROM spec_performance(10);
+CREATE OR REPLACE MACRO spec_performance(spec_id_val) AS TABLE (
+    SELECT
+        o.id, o.kind, o.name,
+        o.use_count,
+        o.success_rate,
+        o.confidence,
+        COUNT(f.id) AS feedback_count,
+        AVG(f.score) AS avg_score,
+        COUNT(a.id) AS adaptation_count
+    FROM spec_objects o
+    LEFT JOIN spec_feedback f ON f.spec_id = o.id
+    LEFT JOIN spec_adaptations a ON a.spec_id = o.id
+    WHERE o.id = spec_id_val
+    GROUP BY o.id, o.kind, o.name, o.use_count, o.success_rate, o.confidence
+);
+
+-- Get low-performing specs that need improvement
+-- Usage: SELECT * FROM spec_needs_improvement(0.5, 5);
+CREATE OR REPLACE MACRO spec_needs_improvement(min_usage, max_success_rate) AS TABLE (
+    SELECT
+        id, kind, name, version, status,
+        use_count, success_rate, confidence,
+        summary
+    FROM spec_objects
+    WHERE use_count >= min_usage
+      AND success_rate < max_success_rate
+      AND status = 'active'
+    ORDER BY success_rate ASC, use_count DESC
+);
+
+-- Get specs that need sync with upstream
+-- Usage: SELECT * FROM spec_needs_sync();
+CREATE OR REPLACE MACRO spec_needs_sync() AS TABLE (
+    SELECT
+        id, kind, name, version,
+        source_type, source_url, upstream_version,
+        last_sync, sync_status,
+        summary
+    FROM spec_objects
+    WHERE source_type = 'upstream'
+      AND sync_status IN ('outdated', 'conflict')
+    ORDER BY last_sync ASC NULLS FIRST
+);
+
+-- Get top learnings by confidence
+-- Usage: SELECT * FROM spec_top_learnings(10);
+CREATE OR REPLACE MACRO spec_top_learnings(limit_count) AS TABLE (
+    SELECT
+        id, learning_type, category,
+        description, confidence,
+        application,
+        created_at
+    FROM spec_learning
+    WHERE confidence >= 0.5
+    ORDER BY confidence DESC, created_at DESC
+    LIMIT limit_count
+);
+
+-- ============================================================================
+-- J) Provenance Query Macros
+-- ============================================================================
+-- NOTE: Provenance mutations should be done via the Python API
+-- (SpecEngine.set_upstream_source, etc.)
+
+-- Get upstream specs grouped by source
+-- Usage: SELECT * FROM spec_upstream_sources();
+CREATE OR REPLACE MACRO spec_upstream_sources() AS TABLE (
+    SELECT
+        source_url,
+        COUNT(*) AS spec_count,
+        MAX(last_sync) AS last_synced,
+        array_agg(name) AS spec_names
+    FROM spec_objects
+    WHERE source_type = 'upstream'
+    GROUP BY source_url
+    ORDER BY last_synced ASC
+);
+
+-- Get learned specs by confidence
+-- Usage: SELECT * FROM spec_learned_by_confidence(0.7);
+CREATE OR REPLACE MACRO spec_learned_by_confidence(min_confidence) AS TABLE (
+    SELECT
+        id, kind, name, version,
+        confidence, use_count, success_rate,
+        summary
+    FROM spec_objects
+    WHERE source_type = 'learned'
+      AND confidence >= min_confidence
+    ORDER BY confidence DESC
+);
