@@ -176,18 +176,34 @@ class SpecEngine:
         return statements
 
     def _load_schema(self) -> None:
-        """Load the Spec Engine schema."""
+        """Load the Spec Engine schema including intelligence layer."""
         db_dir = Path(__file__).parent.parent.parent / "db"
+
+        # Core schema
         schema_path = db_dir / "spec_engine_schema.sql"
         count = self._load_sql_file(str(schema_path))
         print(f"Spec Engine: Loaded schema ({count} statements)", file=sys.stderr)
 
+        # Intelligence layer (embeddings, knowledge bases)
+        intel_path = db_dir / "spec_engine_intelligence.sql"
+        if intel_path.exists():
+            intel_count = self._load_sql_file(str(intel_path))
+            print(f"Spec Engine: Loaded intelligence layer ({intel_count} statements)", file=sys.stderr)
+
     def _load_macros(self) -> None:
-        """Load the Spec Engine macros."""
+        """Load the Spec Engine macros including RAG macros."""
         db_dir = Path(__file__).parent.parent.parent / "db"
+
+        # Core macros
         macros_path = db_dir / "spec_engine_macros.sql"
         count = self._load_sql_file(str(macros_path))
         print(f"Spec Engine: Loaded macros ({count} macros)", file=sys.stderr)
+
+        # RAG/hybrid search macros
+        rag_path = db_dir / "spec_engine_rag.sql"
+        if rag_path.exists():
+            rag_count = self._load_sql_file(str(rag_path))
+            print(f"Spec Engine: Loaded RAG macros ({rag_count} macros)", file=sys.stderr)
 
     def _load_seed_data(self) -> None:
         """Load seed data if tables are empty."""
@@ -1290,6 +1306,439 @@ class SpecEngine:
 
         except Exception as e:
             return []
+
+    # =========================================================================
+    # Intelligence Layer Methods (RAG/Embeddings)
+    # =========================================================================
+
+    def store_embedding(
+        self,
+        content: str,
+        embedding: list[float],
+        content_type: str,
+        spec_id: int | None = None,
+        org_id: int | None = None,
+        metadata: dict | None = None,
+        embedding_model: str = "default",
+    ) -> dict[str, Any]:
+        """
+        Store content with its embedding vector.
+
+        Args:
+            content: Text content to store
+            embedding: Vector embedding as list of floats
+            content_type: Type of content ('code', 'doc', 'decision', 'research', 'design', 'log')
+            spec_id: Optional reference to spec_objects
+            org_id: Optional reference to org spec
+            metadata: Optional JSON metadata
+            embedding_model: Model used for embedding
+
+        Returns:
+            Dict with embedding ID
+        """
+        try:
+            import hashlib
+            content_hash = hashlib.sha256(content.encode()).hexdigest()
+
+            emb_id = self.con.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_embeddings"
+            ).fetchone()[0]
+
+            self.con.execute(
+                """
+                INSERT INTO spec_embeddings
+                    (id, spec_id, org_id, content_type, content_hash, content, embedding, embedding_model, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (content_hash, chunk_index) DO UPDATE SET
+                    embedding = EXCLUDED.embedding
+                """,
+                [
+                    emb_id,
+                    spec_id,
+                    org_id,
+                    content_type,
+                    content_hash,
+                    content,
+                    embedding,
+                    embedding_model,
+                    json.dumps(metadata) if metadata else None,
+                ]
+            )
+
+            return {"embedding_id": emb_id, "content_hash": content_hash}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def search_similar(
+        self,
+        query_embedding: list[float],
+        k: int = 10,
+        content_type: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """
+        Search for similar content using vector similarity.
+
+        Args:
+            query_embedding: Query vector
+            k: Number of results to return
+            content_type: Optional filter by content type
+
+        Returns:
+            List of similar content with similarity scores
+        """
+        try:
+            if content_type:
+                query = """
+                    SELECT
+                        id, spec_id, org_id, content_type,
+                        content, metadata,
+                        array_cosine_similarity(embedding, ?::FLOAT[]) AS similarity
+                    FROM spec_embeddings
+                    WHERE content_type = ?
+                      AND embedding IS NOT NULL
+                    ORDER BY similarity DESC
+                    LIMIT ?
+                """
+                result = self.con.execute(query, [query_embedding, content_type, k]).fetchall()
+            else:
+                query = """
+                    SELECT
+                        id, spec_id, org_id, content_type,
+                        content, metadata,
+                        array_cosine_similarity(embedding, ?::FLOAT[]) AS similarity
+                    FROM spec_embeddings
+                    WHERE embedding IS NOT NULL
+                    ORDER BY similarity DESC
+                    LIMIT ?
+                """
+                result = self.con.execute(query, [query_embedding, k]).fetchall()
+
+            columns = ["id", "spec_id", "org_id", "content_type", "content", "metadata", "similarity"]
+            return [dict(zip(columns, row)) for row in result]
+
+        except Exception as e:
+            return []
+
+    def hybrid_search(
+        self,
+        text_query: str,
+        query_embedding: list[float],
+        k: int = 10,
+        content_type: str | None = None,
+        keyword_weight: float = 0.3,
+    ) -> list[dict[str, Any]]:
+        """
+        Hybrid search combining keyword matching with vector similarity.
+
+        Args:
+            text_query: Text query for keyword matching
+            query_embedding: Query vector for semantic matching
+            k: Number of results to return
+            content_type: Optional filter by content type
+            keyword_weight: Weight for keyword score (0-1), rest goes to vector
+
+        Returns:
+            List of results with hybrid scores
+        """
+        try:
+            vector_weight = 1.0 - keyword_weight
+            type_filter = f"AND content_type = '{content_type}'" if content_type else ""
+
+            query = f"""
+                WITH keyword_matches AS (
+                    SELECT id, 1.0 AS keyword_score
+                    FROM spec_embeddings
+                    WHERE content ILIKE '%' || ? || '%'
+                    {type_filter}
+                ),
+                vector_matches AS (
+                    SELECT
+                        id,
+                        array_cosine_similarity(embedding, ?::FLOAT[]) AS vector_score
+                    FROM spec_embeddings
+                    WHERE embedding IS NOT NULL
+                    {type_filter}
+                )
+                SELECT
+                    e.id, e.spec_id, e.org_id, e.content_type,
+                    e.content, e.metadata,
+                    COALESCE(k.keyword_score, 0) AS keyword_score,
+                    COALESCE(v.vector_score, 0) AS vector_score,
+                    (COALESCE(k.keyword_score, 0) * {keyword_weight} +
+                     COALESCE(v.vector_score, 0) * {vector_weight}) AS hybrid_score
+                FROM spec_embeddings e
+                LEFT JOIN keyword_matches k ON k.id = e.id
+                LEFT JOIN vector_matches v ON v.id = e.id
+                WHERE k.id IS NOT NULL OR v.id IS NOT NULL
+                ORDER BY hybrid_score DESC
+                LIMIT ?
+            """
+            result = self.con.execute(query, [text_query, query_embedding, k]).fetchall()
+
+            columns = ["id", "spec_id", "org_id", "content_type", "content",
+                       "metadata", "keyword_score", "vector_score", "hybrid_score"]
+            return [dict(zip(columns, row)) for row in result]
+
+        except Exception as e:
+            return []
+
+    def store_conversation_memory(
+        self,
+        session_id: str,
+        role: str,
+        content: str,
+        embedding: list[float] | None = None,
+        agent_spec_id: int | None = None,
+        importance: float = 0.5,
+        tool_calls: list | None = None,
+    ) -> dict[str, Any]:
+        """
+        Store a conversation message in long-term memory.
+
+        Args:
+            session_id: Session identifier
+            role: Message role ('user', 'assistant', 'system', 'tool')
+            content: Message content
+            embedding: Optional vector embedding
+            agent_spec_id: Optional reference to agent spec
+            importance: Importance score for memory prioritization (0-1)
+            tool_calls: Optional list of tool calls
+
+        Returns:
+            Dict with memory ID
+        """
+        try:
+            mem_id = self.con.execute(
+                "SELECT COALESCE(MAX(id), 0) + 1 FROM memory_conversations"
+            ).fetchone()[0]
+
+            self.con.execute(
+                """
+                INSERT INTO memory_conversations
+                    (id, session_id, agent_spec_id, role, content, embedding, importance, tool_calls)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    mem_id,
+                    session_id,
+                    agent_spec_id,
+                    role,
+                    content,
+                    embedding,
+                    importance,
+                    json.dumps(tool_calls) if tool_calls else None,
+                ]
+            )
+
+            return {"memory_id": mem_id}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_conversation_context(
+        self,
+        session_id: str,
+        k: int = 10,
+    ) -> list[dict[str, Any]]:
+        """
+        Get recent conversation context for a session.
+
+        Args:
+            session_id: Session identifier
+            k: Number of messages to retrieve
+
+        Returns:
+            List of conversation messages
+        """
+        try:
+            query = """
+                SELECT role, content, importance, created_at
+                FROM memory_conversations
+                WHERE session_id = ?
+                ORDER BY importance DESC, created_at DESC
+                LIMIT ?
+            """
+            result = self.con.execute(query, [session_id, k]).fetchall()
+
+            columns = ["role", "content", "importance", "created_at"]
+            messages = []
+            for row in result:
+                msg = dict(zip(columns, row))
+                if msg.get("created_at"):
+                    msg["created_at"] = str(msg["created_at"])
+                messages.append(msg)
+            return messages
+
+        except Exception as e:
+            return []
+
+    def store_org_knowledge(
+        self,
+        org: str,
+        content: str,
+        embedding: list[float] | None = None,
+        **kwargs,
+    ) -> dict[str, Any]:
+        """
+        Store knowledge in an organization-specific knowledge base.
+
+        Args:
+            org: Organization name ('dev', 'research', 'studio', 'ops')
+            content: Content to store
+            embedding: Optional vector embedding
+            **kwargs: Additional org-specific fields
+
+        Returns:
+            Dict with knowledge entry ID
+        """
+        try:
+            if org == "dev":
+                table = "knowledge_dev"
+                entry_id = self.con.execute(
+                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
+                ).fetchone()[0]
+                self.con.execute(
+                    """
+                    INSERT INTO knowledge_dev (id, repo, file_path, language, ast_type, symbol_name, content, embedding, doc_string, version_ref)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        entry_id,
+                        kwargs.get("repo", "unknown"),
+                        kwargs.get("file_path", "unknown"),
+                        kwargs.get("language"),
+                        kwargs.get("ast_type"),
+                        kwargs.get("symbol_name"),
+                        content,
+                        embedding,
+                        kwargs.get("doc_string"),
+                        kwargs.get("version_ref"),
+                    ]
+                )
+            elif org == "research":
+                table = "knowledge_research"
+                entry_id = self.con.execute(
+                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
+                ).fetchone()[0]
+                self.con.execute(
+                    """
+                    INSERT INTO knowledge_research (id, query, source_url, source_title, content, embedding, relevance_score, search_engine)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        entry_id,
+                        kwargs.get("query", ""),
+                        kwargs.get("source_url"),
+                        kwargs.get("source_title"),
+                        content,
+                        embedding,
+                        kwargs.get("relevance_score"),
+                        kwargs.get("search_engine", "searxng"),
+                    ]
+                )
+            elif org == "studio":
+                table = "knowledge_studio"
+                entry_id = self.con.execute(
+                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
+                ).fetchone()[0]
+                self.con.execute(
+                    """
+                    INSERT INTO knowledge_studio (id, project, decision_type, title, description, content, embedding, rationale, performance)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        entry_id,
+                        kwargs.get("project", "default"),
+                        kwargs.get("decision_type", "general"),
+                        kwargs.get("title", "Untitled"),
+                        kwargs.get("description"),
+                        content,
+                        embedding,
+                        kwargs.get("rationale"),
+                        kwargs.get("performance"),
+                    ]
+                )
+            elif org == "ops":
+                table = "knowledge_ops"
+                entry_id = self.con.execute(
+                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
+                ).fetchone()[0]
+                self.con.execute(
+                    """
+                    INSERT INTO knowledge_ops (id, pipeline, run_id, status, log_level, content, embedding, metrics, duration_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        entry_id,
+                        kwargs.get("pipeline", "unknown"),
+                        kwargs.get("run_id"),
+                        kwargs.get("status"),
+                        kwargs.get("log_level", "info"),
+                        content,
+                        embedding,
+                        json.dumps(kwargs.get("metrics")) if kwargs.get("metrics") else None,
+                        kwargs.get("duration_ms"),
+                    ]
+                )
+            else:
+                return {"error": f"Unknown org: {org}"}
+
+            return {"entry_id": entry_id, "org": org}
+
+        except Exception as e:
+            return {"error": str(e)}
+
+    def get_knowledge_stats(self) -> dict[str, Any]:
+        """
+        Get statistics about the knowledge bases.
+
+        Returns:
+            Dict with knowledge base statistics
+        """
+        try:
+            stats = {}
+
+            # Embedding stats
+            emb_result = self.con.execute("""
+                SELECT
+                    content_type,
+                    COUNT(*) AS total,
+                    COUNT(embedding) AS with_embeddings
+                FROM spec_embeddings
+                GROUP BY content_type
+            """).fetchall()
+            stats["embeddings"] = {
+                row[0]: {"total": row[1], "with_embeddings": row[2]}
+                for row in emb_result
+            }
+
+            # Org knowledge stats
+            for org, table in [("dev", "knowledge_dev"), ("research", "knowledge_research"),
+                               ("studio", "knowledge_studio"), ("ops", "knowledge_ops")]:
+                try:
+                    result = self.con.execute(f"""
+                        SELECT COUNT(*), COUNT(embedding)
+                        FROM {table}
+                    """).fetchone()
+                    stats[org] = {"total": result[0], "with_embeddings": result[1]}
+                except Exception:
+                    stats[org] = {"total": 0, "with_embeddings": 0}
+
+            # Memory stats
+            try:
+                mem_result = self.con.execute("""
+                    SELECT COUNT(*), COUNT(DISTINCT session_id)
+                    FROM memory_conversations
+                """).fetchone()
+                stats["memory"] = {"messages": mem_result[0], "sessions": mem_result[1]}
+            except Exception:
+                stats["memory"] = {"messages": 0, "sessions": 0}
+
+            return stats
+
+        except Exception as e:
+            return {"error": str(e)}
 
 
 # Global spec engine instance

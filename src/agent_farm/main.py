@@ -169,17 +169,25 @@ def load_core_extensions(con: duckdb.DuckDBPyConnection) -> list[str]:
         ("icu", True),
         # HTTP Server (optional but recommended)
         ("httpserver", False),
-        # Advanced Data Structures
+        # === INTELLIGENCE LAYER ===
+        # DuckLake - Persistent Lakehouse for agent memory
+        ("ducklake", False),  # Time travel, snapshots, schema evolution
+        # Vector Similarity Search - RAG/Embeddings
+        ("vss", False),  # Vector similarity search for semantic retrieval
+        # Full-text search for hybrid retrieval
+        ("fts", False),  # Full-text search
+        # === ADVANCED DATA STRUCTURES ===
         ("jsonata", False),  # JSONata query/transform
         ("duckpgq", False),  # Property graphs for spec relationships
-        ("bitfilters", False),  # Bloom/MinHash for similarity
-        ("lindel", False),  # Space-filling curves
-        # Text Processing
-        ("htmlstringify", False),  # HTML to text
-        ("lsh", False),  # Locality Sensitive Hashing for dedup
-        # Extended Data Sources
+        ("bitfilters", False),  # Bloom/MinHash for similarity/dedup
+        ("lindel", False),  # Space-filling curves for geo/spatial
+        # === TEXT PROCESSING ===
+        ("htmlstringify", False),  # HTML to text for web scraping
+        ("lsh", False),  # Locality Sensitive Hashing for near-dedup
+        # === EXTENDED DATA SOURCES ===
         ("shellfs", False),  # Shell commands as tables
-        # Real-time (optional)
+        ("zipfs", False),  # ZIP archive access for artifacts
+        # === REAL-TIME ===
         ("radio", False),  # WebSocket & Redis PubSub for sync
     ]
 
