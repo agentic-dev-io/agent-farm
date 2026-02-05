@@ -2,7 +2,7 @@
   <img src="https://raw.githubusercontent.com/bjoernbethge/agent-farm/master/assets/farm.jpg" alt="Agent Farm" width="100%" />
 </div>
 
-# 🚜 Agent Farm 🦆
+# Agent Farm
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org)
 [![DuckDB](https://img.shields.io/badge/DuckDB-1.1.0+-yellow.svg)](https://duckdb.org)
@@ -16,49 +16,100 @@
 [![Security](https://github.com/bjoernbethge/agent-farm/workflows/Security/badge.svg)](https://github.com/bjoernbethge/agent-farm/actions/workflows/security.yml)
 [![Code Quality](https://github.com/bjoernbethge/agent-farm/workflows/Code%20Quality/badge.svg)](https://github.com/bjoernbethge/agent-farm/actions/workflows/code-quality.yml)
 
-**🌾 DuckDB-powered MCP Server with SQL macros for LLM agents - Web Search, Python execution, RAG, and more.**
+**DuckDB-powered MCP Server with a central Spec Engine for LLM agents - Web Search, Python execution, RAG, template rendering, schema validation, and more.**
 
-[DuckDB](https://duckdb.org) • [Ollama](https://ollama.com) • [Docker](https://www.docker.com) • [Query Farm](https://query.farm)
+[DuckDB](https://duckdb.org) | [Ollama](https://ollama.com) | [MCP Protocol](https://modelcontextprotocol.io) | [Query Farm](https://query.farm)
 
 ---
 
-## ✨ Features
+## Highlights
 
 | Feature | Description |
 |---------|-------------|
-| 🦆 **MCP Server** | Exposes DuckDB as an MCP server for Claude and other LLM clients |
-| 🔍 **Auto-Discovery** | Automatically discovers MCP configurations from standard locations |
-| 🤖 **LLM Integration** | SQL macros for calling Ollama models (local and cloud) |
-| 🛠️ **Tool Calling** | Full function calling support for agentic workflows |
-| 🌐 **Web Search** | DuckDuckGo and Brave Search integration |
-| 💻 **Shell Execution** | Run shell commands and Python code via UV |
-| 📄 **Web Scraping** | Fetch and extract text from web pages |
-| 🧠 **RAG Support** | Embeddings and vector similarity search |
-| 📦 **Rich Extensions** | Pre-configured with useful DuckDB extensions |
-| 🧠 **Copilot Memory** | MCP-based persistent memory for GitHub Copilot agents |
-| 🚀 **CI/CD Automation** | Comprehensive GitHub Actions workflows for quality and security |
+| **Spec Engine** | Central specification management with DuckDB - agents, skills, templates, schemas |
+| **MCP Server** | Exposes DuckDB as an MCP server for Claude and other LLM clients |
+| **Template Rendering** | MiniJinja templates for prompts, plans, and structured outputs |
+| **Schema Validation** | JSON Schema validation for payloads and configurations |
+| **LLM Integration** | SQL macros for calling Ollama models (local and cloud) |
+| **Web Search** | DuckDuckGo and Brave Search integration |
+| **Shell & Python** | Execute shell commands and Python code via UV |
+| **RAG Support** | Embeddings and vector similarity search |
+| **HTTP API** | Optional REST-like API via httpserver extension |
+| **Multi-Org Swarm** | 5 specialized organizations with security policies |
 
 ---
 
-## 📦 DuckDB Extensions
+## Spec Engine
+
+The **Spec Engine** is the heart of Agent Farm - a DuckDB-based "Spec-OS" that manages all specifications:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Spec Engine (DuckDB)                     │
+│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐           │
+│  │  minijinja  │ │ json_schema │ │  duckdb_mcp │           │
+│  │ (templates) │ │ (validate)  │ │ (MCP bridge)│           │
+│  └─────────────┘ └─────────────┘ └─────────────┘           │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  agents | skills | schemas | templates | workflows      ││
+│  └─────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────┘
+```
+
+### MCP Tools
+
+| Tool | Description |
+|------|-------------|
+| `spec_list` | List specs by kind (agent, skill, schema, template, etc.) |
+| `spec_get` | Get a single spec by ID or kind+name |
+| `spec_search` | Full-text search across specs |
+| `render_from_template` | Render MiniJinja templates with context |
+| `validate_payload_against_spec` | Validate JSON against schemas |
+
+### Quick Example
+
+```python
+from agent_farm.spec_engine import get_spec_engine
+
+engine = get_spec_engine(con)
+
+# List all agents
+agents = engine.spec_list(kind="agent")
+
+# Get Pia (the planner agent)
+pia = engine.spec_get(kind="agent", name="pia")
+
+# Render a plan template
+plan = engine.render_from_template("plan_pia_swarm", {
+    "task_name": "Build User API",
+    "objective": "Create REST API for users",
+    "steps": [{"name": "Design", "org": "DevOrg"}],
+    "success_criteria": ["Tests pass"]
+})
+```
+
+See [docs/spec_engine.md](docs/spec_engine.md) for complete documentation.
+
+---
+
+## DuckDB Extensions
 
 | Extension | Type | Description |
 |-----------|------|-------------|
+| `minijinja` | Community | MiniJinja template rendering |
+| `json_schema` | Community | JSON Schema validation |
+| `duckdb_mcp` | Community | MCP protocol support |
+| `httpserver` | Community | HTTP OLAP API server |
 | `httpfs` | Core | HTTP/S3 filesystem access |
 | `json` | Core | JSON parsing and extraction |
-| `icu` | Core | International unicode support |
 | `vss` | Core | Vector similarity search |
-| `ducklake` | Core | Delta Lake / Iceberg support |
-| `lindel` | Core | Linear algebra operations |
 | `http_client` | Community | HTTP GET/POST requests |
-| `duckdb_mcp` | Community | MCP protocol support |
 | `jsonata` | Community | JSONata query language |
 | `shellfs` | Community | Shell command execution |
-| `zipfs` | Community | ZIP file access |
 
 ---
 
-## 🚀 Installation
+## Installation
 
 **Using pip:**
 ```bash
@@ -79,23 +130,28 @@ uv sync --dev
 
 ---
 
-## 🎯 Quick Start
+## Quick Start
 
 **Run the MCP server:**
 ```bash
 agent-farm
 ```
 
-**Or as a module:**
+**With persistent database:**
 ```bash
-python -m agent_farm
+DUCKDB_DATABASE=my_specs.db agent-farm
+```
+
+**With HTTP API:**
+```bash
+SPEC_ENGINE_HTTP_PORT=9999 SPEC_ENGINE_API_KEY=secret agent-farm
 ```
 
 ---
 
-## 🌾 SQL Macros
+## SQL Macros
 
-### 🤖 Cloud LLM Models (via Ollama)
+### LLM Models (via Ollama)
 
 ```sql
 SELECT deepseek('Explain quantum computing');
@@ -104,7 +160,26 @@ SELECT qwen3_coder('Write a Python function for...');
 SELECT gemini('Summarize this text...');
 ```
 
-### 🔍 Web Search
+### Spec Engine
+
+```sql
+-- List specs
+SELECT * FROM spec_list_by_kind('agent');
+SELECT * FROM spec_search('planner');
+
+-- Get spec details
+SELECT * FROM spec_get('agent', 'pia');
+SELECT spec_get_payload('skill', 'duckdb-spec-engine');
+
+-- Render templates
+SELECT spec_render_template('plan_pia_swarm', '{"task_name": "Test"}');
+SELECT spec_render('Hello {{ name }}!', '{"name": "World"}');
+
+-- Validate payloads
+SELECT spec_validate('agent_config_schema', '{"name": "test", "role": "planner"}');
+```
+
+### Web Search
 
 ```sql
 SELECT ddg_instant('Python programming');
@@ -112,25 +187,23 @@ SELECT ddg_abstract('machine learning');
 SELECT brave_search('DuckDB tutorial');
 ```
 
-### 💻 Shell & Python Execution
+### Shell & Python
 
 ```sql
 SELECT shell('ls -la');
 SELECT py('print(2+2)');
 SELECT py_with('requests', 'import requests; print(requests.__version__)');
-SELECT py_script('script.py');
 ```
 
-### 🌐 Web Scraping
+### Web Scraping
 
 ```sql
 SELECT fetch('https://example.com');
 SELECT fetch_text('https://example.com');
 SELECT fetch_json('https://api.example.com/data');
-SELECT fetch_ua('https://example.com');  -- with User-Agent
 ```
 
-### 📁 File & Git Operations
+### File & Git Operations
 
 ```sql
 SELECT read_file('path/to/file.txt');
@@ -139,51 +212,55 @@ SELECT git_log(10);
 SELECT git_diff();
 ```
 
-### 🧠 RAG & Embeddings
+### RAG & Embeddings
 
 ```sql
 SELECT embed('Hello world');
 SELECT semantic_score('query', 'document');
 SELECT rag_query('What is the price?', 'Product: Widget, Price: 49.99');
-SELECT rag_think('Complex question', 'Long context...');
-```
-
-### ⚡ Power Macros
-
-```sql
-SELECT search_and_summarize('What is DuckDB?');
-SELECT analyze_page('https://example.com', 'What is this page about?');
-SELECT review_code('src/main.py');
-SELECT explain_code('src/main.py');
-SELECT generate_py('fibonacci function');
 ```
 
 ---
 
-## 🐳 Docker
+## Multi-Org Swarm
+
+Agent Farm includes 5 specialized organizations:
+
+| Organization | Type | Primary Model | Purpose |
+|--------------|------|---------------|---------|
+| **DevOrg** | dev | glm-4.7 | Code development and testing |
+| **OpsOrg** | ops | kimi-k2.5 | Deployment and infrastructure |
+| **ResearchOrg** | research | gpt-oss:20b | Information gathering |
+| **StudioOrg** | studio | kimi-k2.5 | Creative and documentation |
+| **OrchestratorOrg** | orchestrator | kimi-k2.5 | Coordination between orgs |
+
+Each org has:
+- Dedicated workspaces with security policies
+- Allowed/denied tool lists
+- System prompts optimized for their role
+
+---
+
+## Docker
 
 ```bash
 docker build -t agent-farm .
-docker run -v /data:/data -p 8080:8080 agent-farm
+docker run -v /data:/data -p 9999:9999 agent-farm
 ```
 
 ---
 
-## 📋 Requirements
+## Requirements
 
-- 🐍 Python >= 3.11
-- 🦆 DuckDB >= 1.1.0
-- 🦙 Ollama (for LLM features)
+- Python >= 3.11
+- DuckDB >= 1.1.0
+- Ollama (for LLM features)
 
 ---
 
-## 🤖 GitHub Copilot Integration
-
-Agent Farm includes specialized configurations for GitHub Copilot:
+## GitHub Copilot Integration
 
 ### Copilot Memory with MCP
-
-The included `mcp.json` configuration enables persistent memory for Copilot agents:
 
 ```json
 {
@@ -199,66 +276,28 @@ The included `mcp.json` configuration enables persistent memory for Copilot agen
 }
 ```
 
-This allows Copilot to:
-- Store project context persistently
-- Remember code patterns and conventions
-- Track workflow history
-- Maintain agent-specific memory
+### Specialized Agents
 
-### Specialized DevOps Agent
+- [DevOps Agent](.github/agents/devops-agent.md) - CI/CD, Docker, security
+- [Copilot Instructions](.github/copilot-instructions.md) - Repository-wide guidelines
 
-See [`.github/agents/devops-agent.md`](.github/agents/devops-agent.md) for the specialized DevOps agent that assists with:
-- CI/CD pipeline management
-- Workflow automation
-- Security scanning
-- Dependency updates
-- Docker operations
+### Path-Specific Instructions
 
-### Copilot Instructions
-
-Comprehensive coding guidelines are available for GitHub Copilot:
-
-#### Repository-Wide Instructions
-[`.github/copilot-instructions.md`](.github/copilot-instructions.md) covers:
-- Repository onboarding behavior and workflows
-- Context7 MCP and Serena MCP server setup
-- Project architecture and conventions
-- SQL macro development patterns
-- Testing and quality standards
-- MCP protocol integration
-- Performance optimization tips
-
-#### Copilot Prompt Files
-The `.github/prompts/` directory contains specialized prompt files for common workflows:
-- [`onboarding-plan.prompt.md`](.github/prompts/onboarding-plan.prompt.md) - Generate phased onboarding plans for new contributors
-
-To use a prompt file, open GitHub Copilot Chat and type `/onboarding-plan` (or the relevant prompt name).
-
-#### Path-Specific Instructions
-The `.github/instructions/` directory contains specialized guidelines for different file types:
-- [`python-tests.instructions.md`](.github/instructions/python-tests.instructions.md) - pytest testing standards
-- [`sql-macros.instructions.md`](.github/instructions/sql-macros.instructions.md) - DuckDB SQL macro conventions
-- [`python-source.instructions.md`](.github/instructions/python-source.instructions.md) - Python code style and patterns
-- [`docker.instructions.md`](.github/instructions/docker.instructions.md) - Dockerfile best practices
-- [`github-workflows.instructions.md`](.github/instructions/github-workflows.instructions.md) - GitHub Actions workflow standards
+- [`python-tests.instructions.md`](.github/instructions/python-tests.instructions.md)
+- [`sql-macros.instructions.md`](.github/instructions/sql-macros.instructions.md)
+- [`python-source.instructions.md`](.github/instructions/python-source.instructions.md)
 
 ---
 
-## 🚀 CI/CD & Automation
-
-This repository is fully automated with GitHub Actions workflows:
-
-### Available Workflows
+## CI/CD & Automation
 
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
-| **CI** | Push, PR | Lint, test, and validate builds |
-| **Security** | Push, PR, Weekly | CodeQL analysis, dependency scanning |
-| **Code Quality** | Push, PR | Code complexity, coverage, documentation checks |
-| **Dependencies** | Weekly | Automated dependency updates |
-| **Release** | Git tags | PyPI publishing, Docker images, GitHub releases |
-
-### Quick Commands
+| **CI** | Push, PR | Lint, test, validate |
+| **Security** | Push, PR, Weekly | CodeQL, dependency scanning |
+| **Code Quality** | Push, PR | Complexity, coverage |
+| **Dependencies** | Weekly | Automated updates |
+| **Release** | Git tags | PyPI, Docker, GitHub releases |
 
 ```bash
 # Run linting
@@ -271,32 +310,32 @@ uv run pytest tests/ -v
 docker build -t agent-farm .
 ```
 
-### Documentation
+---
 
-- [Workflow Documentation](.github/WORKFLOWS.md) - Detailed workflow information
+## Documentation
+
+- [Spec Engine](docs/spec_engine.md) - Complete Spec Engine documentation
+- [Workflow Documentation](.github/WORKFLOWS.md) - CI/CD details
 - [Contributing Guide](.github/CONTRIBUTING.md) - Development guidelines
-- [Pull Request Template](.github/PULL_REQUEST_TEMPLATE.md)
-- [Issue Templates](.github/ISSUE_TEMPLATE/)
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](.github/CONTRIBUTING.md) for details on:
+We welcome contributions! Please see our [Contributing Guide](.github/CONTRIBUTING.md) for:
 - Development setup
 - Coding standards
 - Testing requirements
 - Pull request process
-- DevOps guidelines
 
 ---
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
-  <b>🚜 Happy Farming! 🦆</b>
+  <b>Happy Farming!</b>
 </div>

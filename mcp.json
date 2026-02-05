@@ -4,7 +4,7 @@
       "command": "agent-farm",
       "args": [],
       "env": {},
-      "description": "DuckDB-powered MCP Server with SQL macros for LLM agents - provides web search, Python execution, RAG, and more through SQL interface"
+      "description": "DuckDB-powered Spec Engine MCP Server - Central Spec-OS for all agents with template rendering (MiniJinja), JSON Schema validation, and MCP integration"
     },
     "agent-farm-memory": {
       "command": "python",
@@ -13,7 +13,47 @@
         "DUCKDB_DATABASE": ".agent_memory.db"
       },
       "description": "Agent Farm with persistent memory storage for GitHub Copilot context"
+    },
+    "agent-farm-http": {
+      "command": "python",
+      "args": ["-m", "agent_farm"],
+      "env": {
+        "DUCKDB_DATABASE": ":memory:",
+        "SPEC_ENGINE_HTTP_PORT": "9999",
+        "SPEC_ENGINE_API_KEY": "change-me-in-production"
+      },
+      "description": "Agent Farm with HTTP API exposed on port 9999"
     }
+  },
+  "specEngine": {
+    "description": "The Spec Engine is the central Spec-OS for managing all specifications",
+    "extensions": {
+      "minijinja": "Template rendering for prompts and plans",
+      "json_schema": "JSON Schema validation for payloads",
+      "duckdb_mcp": "MCP protocol integration (client + server)",
+      "httpserver": "HTTP OLAP API for non-MCP clients"
+    },
+    "tools": {
+      "spec_list": "List specs by kind with optional filters",
+      "spec_get": "Get a single spec by ID or kind+name",
+      "spec_search": "Search specs by query string",
+      "render_from_template": "Render MiniJinja templates",
+      "validate_payload_against_spec": "Validate JSON against schemas"
+    },
+    "specKinds": [
+      "agent",
+      "skill",
+      "api",
+      "protocol",
+      "schema",
+      "task_template",
+      "prompt_template",
+      "workflow",
+      "ui",
+      "open_response",
+      "org",
+      "tool"
+    ]
   },
   "memory": {
     "enabled": true,
