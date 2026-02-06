@@ -377,6 +377,17 @@ def udf_detect_injection(content: str) -> str | None:
     return None
 
 
+def udf_getenv(name: str) -> str | None:
+    """
+    Get environment variable value.
+
+    Replacement for DuckDB's getenv() which is not available in embedded/Python mode.
+    """
+    if not name:
+        return None
+    return os.getenv(name)
+
+
 def udf_safe_json_extract(json_str: str, path: str) -> str | None:
     """
     Safely extract value from JSON string.
@@ -451,6 +462,16 @@ def register_udfs(con: duckdb.DuckDBPyConnection) -> list[str]:
         null_handling="special",
     )
     registered.append("detect_injection_udf")
+
+    # getenv(name) -> VARCHAR or NULL (replaces CLI-only getenv)
+    con.create_function(
+        "getenv",
+        udf_getenv,
+        [str],
+        str,
+        null_handling="special",
+    )
+    registered.append("getenv")
 
     # safe_json_extract(json_str, path) -> VARCHAR or NULL
     con.create_function(

@@ -1,7 +1,7 @@
 [project]
 name = "agent-farm"
 version = "0.1.5"
-description = "DuckDB-powered MCP Server with SQL macros for LLM agents"
+description = "DuckDB multi-org agent swarm with Spec Engine, 175+ SQL macros, meta-learning, MCP Apps, and smart extensions"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [

@@ -92,12 +92,12 @@ CREATE OR REPLACE MACRO py_eval(expr) AS (
 -- WEB SCRAPING / FETCH
 -- =============================================================================
 
-CREATE OR REPLACE MACRO fetch(url) AS (
+CREATE OR REPLACE MACRO web_fetch(url) AS (
     http_get(url).body
 );
 
 CREATE OR REPLACE MACRO fetch_text(url) AS (
-    htmlstringify(http_get(url).body)
+    TRY(htmlstringify(http_get(url).body))
 );
 
 CREATE OR REPLACE MACRO fetch_json(url) AS (

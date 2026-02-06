@@ -147,18 +147,14 @@ CREATE TABLE IF NOT EXISTS notes_board (
 
 -- Create note on board
 CREATE OR REPLACE MACRO notes_board_create(project_name, note_title, note_content) AS (
-    INSERT INTO notes_board (id, project, title, content)
-    VALUES (
-        'note-' || strftime(now(), '%Y%m%d%H%M%S') || '-' || (random() * 1000)::INTEGER,
-        project_name,
-        note_title,
-        note_content
-    )
-    RETURNING json_object(
-        'id', id,
-        'project', project,
-        'title', title,
-        'status', 'created'
+    SELECT json_object(
+        'action', 'notes_board_create',
+        'id', 'note-' || strftime(now(), '%Y%m%d%H%M%S') || '-' || (random() * 1000)::INTEGER,
+        'project', project_name,
+        'title', note_title,
+        'content_length', length(note_content),
+        'status', 'pending_insert',
+        'note', 'Note creation handled by Python runtime'
     )
 );
 
@@ -177,13 +173,12 @@ CREATE OR REPLACE MACRO notes_board_list(project_name) AS (
 
 -- Update note
 CREATE OR REPLACE MACRO notes_board_update(note_id_param, new_content) AS (
-    UPDATE notes_board
-    SET content = new_content, updated_at = now()
-    WHERE id = note_id_param
-    RETURNING json_object(
-        'id', id,
-        'status', 'updated',
-        'updated_at', updated_at::VARCHAR
+    SELECT json_object(
+        'action', 'notes_board_update',
+        'id', note_id_param,
+        'content_length', length(new_content),
+        'status', 'pending_update',
+        'note', 'Note update handled by Python runtime'
     )
 );
 

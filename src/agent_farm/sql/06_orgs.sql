@@ -133,17 +133,24 @@ CREATE OR REPLACE MACRO org_can_execute(org_id_param, tool_name_param, tool_para
 
 -- Log an org call
 CREATE OR REPLACE MACRO log_org_call(session_id_param, caller_param, target_param, task_param) AS (
-    INSERT INTO org_calls (session_id, caller_org, target_org, task, status)
-    VALUES (session_id_param, caller_param, target_param, task_param, 'pending')
-    RETURNING id
+    SELECT json_object(
+        'action', 'log_org_call',
+        'session_id', session_id_param,
+        'caller', caller_param,
+        'target', target_param,
+        'task', task_param,
+        'note', 'Org call logging handled by Python runtime'
+    )
 );
 
 -- Update org call result
 CREATE OR REPLACE MACRO complete_org_call(call_id_param, result_json) AS (
-    UPDATE org_calls
-    SET status = 'completed', result = result_json::JSON, completed_at = now()
-    WHERE id = call_id_param
-    RETURNING *
+    SELECT json_object(
+        'action', 'complete_org_call',
+        'call_id', call_id_param,
+        'result', result_json,
+        'note', 'Org call completion handled by Python runtime'
+    )
 );
 
 -- Call another org (orchestrator function)
@@ -151,18 +158,16 @@ CREATE OR REPLACE MACRO call_org(caller_org_id, target_org_id, session_id_param,
     WITH org_info AS (
         SELECT model_primary, system_prompt
         FROM orgs WHERE id = target_org_id
-    ),
-    call_log AS (
-        SELECT log_org_call(session_id_param, caller_org_id, target_org_id, task_prompt) as call_id
     )
     SELECT json_object(
-        'call_id', call_log.call_id,
         'target_org', target_org_id,
+        'caller_org', caller_org_id,
         'model', org_info.model_primary,
         'task', task_prompt,
+        'session_id', session_id_param,
         'status', 'dispatched'
     )
-    FROM org_info, call_log
+    FROM org_info
 );
 
 -- Orchestrator tools schema

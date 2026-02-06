@@ -329,20 +329,38 @@ def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
     return total_loaded
 
 
+def create_agent_tables(con: duckdb.DuckDBPyConnection) -> None:
+    """
+    Create agent infrastructure tables (workspaces, security_policy, etc.).
+    These must exist before SQL macros are loaded, as macros reference them.
+    """
+    from .schemas import AGENT_TABLES_SQL
+
+    for stmt in AGENT_TABLES_SQL.split(";"):
+        stmt = stmt.strip()
+        if stmt and _has_non_comment_content(stmt):
+            try:
+                con.sql(stmt)
+            except Exception as e:
+                print(f"Error creating agent table: {e}", file=sys.stderr)
+    print("Agent infrastructure tables created.", file=sys.stderr)
+
+
 def main():
     """
     Main entry point for the Agent Farm MCP Server.
 
     Initialization order:
     1. Create DuckDB connection
-    2. Load core extensions (including Spec Engine dependencies)
+    2. Load core extensions
     3. Initialize Spec Engine (schema, macros, seed data)
     4. Discover MCP configurations
-    5. Create legacy tables (for backwards compatibility)
-    6. Load additional SQL macros
-    7. Seed organization configs
-    8. Register Python UDFs
-    9. Start MCP Server
+    5. Register Python UDFs (before SQL macros, as macros may reference them)
+    6. Create agent infrastructure tables (before SQL macros reference them)
+    7. Create runtime tables (sessions, audit, approvals)
+    8. Load SQL macros
+    9. Seed organization configs
+    10. Start MCP Server
     """
     # Get database path from environment or use in-memory
     db_path = os.environ.get("DUCKDB_DATABASE", ":memory:")
@@ -387,16 +405,32 @@ def main():
             )
         """)
 
-    # 4. Create Runtime Tables (sessions, audit, approvals)
+    # 4. Register Python UDFs BEFORE SQL macros (macros reference getenv etc.)
+    try:
+        from .udfs import register_udfs
+
+        registered = register_udfs(con)
+        print(f"Registered {len(registered)} UDFs: {', '.join(registered)}", file=sys.stderr)
+    except ImportError:
+        print("UDFs module not available, skipping", file=sys.stderr)
+    except Exception as e:
+        print(f"Error registering UDFs: {e}", file=sys.stderr)
+
+    # 5. Create Agent Infrastructure Tables (workspaces, security_policy, etc.)
+    #    Must exist before SQL macros are loaded, as macros reference these tables.
+    print("Creating agent infrastructure tables...", file=sys.stderr)
+    create_agent_tables(con)
+
+    # 6. Create Runtime Tables (sessions, audit, approvals)
     print("Creating runtime tables...", file=sys.stderr)
     create_runtime_tables(con)
 
-    # 5. Load SQL Macros
+    # 7. Load SQL Macros
     print("Loading SQL macros...", file=sys.stderr)
     total_macros = load_sql_macros(con)
     print(f"Total: {total_macros} macros loaded.", file=sys.stderr)
 
-    # 6. Seed Organization Configurations
+    # 8. Seed Organization Configurations
     try:
         from .orgs import generate_org_seed_sql
 
@@ -414,18 +448,7 @@ def main():
     except Exception as e:
         print(f"Error seeding orgs: {e}", file=sys.stderr)
 
-    # 7. Register Python UDFs
-    try:
-        from .udfs import register_udfs
-
-        registered = register_udfs(con)
-        print(f"Registered {len(registered)} UDFs: {', '.join(registered)}", file=sys.stderr)
-    except ImportError:
-        print("UDFs module not available, skipping", file=sys.stderr)
-    except Exception as e:
-        print(f"Error registering UDFs: {e}", file=sys.stderr)
-
-    # 8. Create extension info table
+    # 9. Create extension info table
     con.sql(f"""
         CREATE OR REPLACE TABLE loaded_extensions AS
         SELECT unnest({loaded_extensions!r}::VARCHAR[]) as extension_name

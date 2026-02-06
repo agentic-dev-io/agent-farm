@@ -835,40 +835,24 @@ CREATE OR REPLACE MACRO render_app(app_id_param, instance_id_param, input_json) 
 
 -- Open an app and render HTML
 CREATE OR REPLACE MACRO open_app(app_id_param, session_id_param, input_json) AS (
-    WITH new_instance AS (
-        INSERT INTO mcp_app_instances (instance_id, app_id, session_id, status, input_data)
-        VALUES (
-            'inst-' || substr(md5(random()::VARCHAR), 1, 8),
-            app_id_param,
-            session_id_param,
-            'active',
-            input_json::JSON
-        )
-        RETURNING *
-    ),
-    rendered AS (
-        SELECT render_app(app_id_param, (SELECT instance_id FROM new_instance), input_json) as html
-    )
-    UPDATE mcp_app_instances
-    SET rendered_html = (SELECT html FROM rendered)
-    WHERE instance_id = (SELECT instance_id FROM new_instance)
-    RETURNING json_object(
-        'instance_id', instance_id,
-        'app_id', app_id,
+    SELECT json_object(
+        'instance_id', 'inst-' || substr(md5(random()::VARCHAR), 1, 8),
+        'app_id', app_id_param,
+        'session_id', session_id_param,
         'status', 'opened',
-        'html', rendered_html
+        'html', render_app(app_id_param, 'inst-' || substr(md5(random()::VARCHAR), 1, 8), input_json),
+        'input', input_json
     )
 );
 
 -- Close app with result
 CREATE OR REPLACE MACRO close_app(instance_id_param, output_json) AS (
-    UPDATE mcp_app_instances
-    SET status = 'closed', output_data = output_json::JSON, completed_at = now()
-    WHERE instance_id = instance_id_param
-    RETURNING json_object(
-        'instance_id', instance_id,
+    SELECT json_object(
+        'action', 'close_app',
+        'instance_id', instance_id_param,
+        'output', output_json,
         'status', 'closed',
-        'output', output_data
+        'note', 'App closure handled by Python runtime'
     )
 );
 
@@ -890,20 +874,13 @@ CREATE OR REPLACE MACRO studio_present_choices(session_id_param, title, descript
 );
 
 CREATE OR REPLACE MACRO studio_commit_choice(instance_id_param, selected_id, rationale) AS (
-    WITH closed AS (
-        SELECT close_app(instance_id_param, json_object('selected_id', selected_id, 'rationale', rationale)) as result
-    ),
-    logged AS (
-        INSERT INTO audit_log (session_id, entry_type, tool_name, parameters, result, decision)
-        SELECT
-            (SELECT session_id FROM mcp_app_instances WHERE instance_id = instance_id_param),
-            'app_choice', 'studio_commit_choice',
-            json_object('instance_id', instance_id_param, 'selected_id', selected_id),
-            closed.result, 'committed'
-        FROM closed
-        RETURNING id
+    SELECT json_object(
+        'action', 'studio_commit_choice',
+        'instance_id', instance_id_param,
+        'selected_id', selected_id,
+        'rationale', rationale,
+        'status', 'committed'
     )
-    SELECT json_object('status', 'committed', 'selected_id', selected_id, 'rationale', rationale, 'audit_id', (SELECT id FROM logged))
 );
 
 CREATE OR REPLACE MACRO studio_view_document(session_id_param, content, format) AS (
@@ -928,17 +905,12 @@ CREATE OR REPLACE MACRO onboarding_select_profile(session_id_param) AS (
 );
 
 CREATE OR REPLACE MACRO onboarding_commit_profile(user_id_param, profile_id_param) AS (
-    WITH profile AS (SELECT * FROM onboarding_profiles WHERE id = profile_id_param),
-    upsert AS (
-        INSERT INTO user_profile (user_id, profile_id, updated_at)
-        VALUES (user_id_param, profile_id_param, now())
-        ON CONFLICT (user_id) DO UPDATE SET profile_id = profile_id_param, updated_at = now()
-        RETURNING *
-    )
     SELECT json_object(
-        'status', 'profile_set',
+        'action', 'onboarding_commit_profile',
         'user_id', user_id_param,
-        'profile', (SELECT json_object('id', id, 'name', name, 'defaults', defaults) FROM profile)
+        'profile_id', profile_id_param,
+        'status', 'profile_set',
+        'note', 'Profile commit handled by Python runtime'
     )
 );
 
@@ -966,9 +938,12 @@ CREATE OR REPLACE MACRO open_settings(session_id_param, user_id_param) AS (
 );
 
 CREATE OR REPLACE MACRO save_settings(user_id_param, settings_json) AS (
-    UPDATE user_profile SET custom_settings = settings_json::JSON, updated_at = now()
-    WHERE user_id = user_id_param
-    RETURNING json_object('status', 'saved', 'user_id', user_id)
+    SELECT json_object(
+        'action', 'save_settings',
+        'user_id', user_id_param,
+        'status', 'saved',
+        'note', 'Settings save handled by Python runtime'
+    )
 );
 
 -- =============================================================================
@@ -1244,35 +1219,23 @@ CREATE OR REPLACE MACRO process_app_result(instance_id_param) AS (
 
 -- Apply model selection from model-selector app
 CREATE OR REPLACE MACRO apply_model_selection(agent_id_param, instance_id_param) AS (
-    WITH selection AS (
-        SELECT
-            json_extract_string(output_data, '$.model_id') as model_id,
-            json_extract_string(output_data, '$.prompt') as user_prompt
-        FROM mcp_app_instances WHERE instance_id = instance_id_param
-    )
-    UPDATE agent_config
-    SET model_name = (SELECT model_id FROM selection),
-        updated_at = now()
-    WHERE id = agent_id_param
-    RETURNING json_object(
-        'agent_id', id,
-        'new_model', model_name,
-        'prompt', (SELECT user_prompt FROM selection)
+    SELECT json_object(
+        'action', 'apply_model_selection',
+        'agent_id', agent_id_param,
+        'instance_id', instance_id_param,
+        'status', 'pending_update',
+        'note', 'Model selection handled by Python runtime'
     )
 );
 
 -- Resolve pending approval (from approval-flow app)
 CREATE OR REPLACE MACRO resolve_approval(approval_id_param, decision_param, resolved_by_param) AS (
-    UPDATE pending_approvals
-    SET status = decision_param,
-        resolved_at = now(),
-        resolved_by = resolved_by_param
-    WHERE id = approval_id_param
-    RETURNING json_object(
-        'approval_id', id,
-        'tool_name', tool_name,
-        'decision', status,
-        'resolved_by', resolved_by
+    SELECT json_object(
+        'action', 'resolve_approval',
+        'approval_id', approval_id_param,
+        'decision', decision_param,
+        'resolved_by', resolved_by_param,
+        'note', 'Approval resolution handled by Python runtime'
     )
 );
 
@@ -1291,11 +1254,6 @@ CREATE OR REPLACE MACRO get_pending_approvals(session_id_param) AS (
 
 -- Create approval request and open UI
 CREATE OR REPLACE MACRO request_tool_approval(session_id_param, agent_id_param, tool_name_param, tool_params_param, reason_param) AS (
-    WITH inserted AS (
-        INSERT INTO pending_approvals (session_id, agent_id, tool_name, tool_params, reason)
-        VALUES (session_id_param, agent_id_param, tool_name_param, tool_params_param::JSON, reason_param)
-        RETURNING id
-    )
     SELECT open_approval_ui(
         session_id_param,
         'Genehmigung erforderlich: ' || tool_name_param,

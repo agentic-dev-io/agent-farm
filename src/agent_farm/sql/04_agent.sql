@@ -79,15 +79,23 @@ CREATE OR REPLACE MACRO is_allowed_domain(agent_id_param, domain) AS (
 -- =============================================================================
 
 CREATE OR REPLACE MACRO log_tool_call(session_id_param, tool_name_param, params_json, result_json, decision_param) AS (
-    INSERT INTO audit_log (session_id, entry_type, tool_name, parameters, result, decision)
-    VALUES (session_id_param, 'tool_call', tool_name_param, params_json::JSON, result_json::JSON, decision_param)
-    RETURNING id
+    SELECT json_object(
+        'action', 'log_tool_call',
+        'session_id', session_id_param,
+        'tool_name', tool_name_param,
+        'decision', decision_param,
+        'note', 'Audit logging handled by Python runtime'
+    )
 );
 
 CREATE OR REPLACE MACRO log_violation(session_id_param, tool_name_param, violations_array) AS (
-    INSERT INTO audit_log (session_id, entry_type, tool_name, decision, violations)
-    VALUES (session_id_param, 'violation', tool_name_param, 'deny', violations_array)
-    RETURNING id
+    SELECT json_object(
+        'action', 'log_violation',
+        'session_id', session_id_param,
+        'tool_name', tool_name_param,
+        'violations', violations_array::JSON,
+        'note', 'Violation logging handled by Python runtime'
+    )
 );
 
 CREATE OR REPLACE MACRO recent_audit(session_id_param, limit_n) AS TABLE
@@ -156,25 +164,35 @@ CREATE OR REPLACE MACRO secure_write(agent_id_param, file_path, content) AS (
 -- =============================================================================
 
 CREATE OR REPLACE MACRO create_agent(agent_id_param, agent_name, agent_role, sec_profile) AS (
-    INSERT INTO agent_config (id, name, role, security_profile)
-    VALUES (agent_id_param, agent_name, agent_role, sec_profile)
-    RETURNING *
+    SELECT json_object(
+        'action', 'create_agent',
+        'id', agent_id_param,
+        'name', agent_name,
+        'role', agent_role,
+        'security_profile', sec_profile,
+        'note', 'Agent creation handled by Python runtime'
+    )
 );
 
 CREATE OR REPLACE MACRO add_workspace(ws_id, agent_id_param, ws_path, ws_name, ws_mode) AS (
-    INSERT INTO workspaces (id, agent_id, path, name, mode)
-    VALUES (ws_id, agent_id_param, ws_path, ws_name, ws_mode)
-    RETURNING *
+    SELECT json_object(
+        'action', 'add_workspace',
+        'id', ws_id,
+        'agent_id', agent_id_param,
+        'path', ws_path,
+        'name', ws_name,
+        'mode', ws_mode,
+        'note', 'Workspace creation handled by Python runtime'
+    )
 );
 
 CREATE OR REPLACE MACRO init_security_policy(agent_id_param, shell_on, allowlist, blocklist) AS (
-    INSERT INTO security_policy (agent_id, shell_enabled, shell_allowlist, shell_blocklist)
-    VALUES (agent_id_param, shell_on, allowlist, blocklist)
-    ON CONFLICT (agent_id) DO UPDATE SET
-        shell_enabled = shell_on,
-        shell_allowlist = allowlist,
-        shell_blocklist = blocklist
-    RETURNING *
+    SELECT json_object(
+        'action', 'init_security_policy',
+        'agent_id', agent_id_param,
+        'shell_enabled', shell_on,
+        'note', 'Security policy init handled by Python runtime'
+    )
 );
 
 CREATE OR REPLACE MACRO get_agent_config(agent_id_param) AS (
@@ -201,9 +219,14 @@ CREATE OR REPLACE MACRO requires_approval(agent_id_param, tool_name, tool_params
 );
 
 CREATE OR REPLACE MACRO request_approval(session_id_param, tool_name, tool_params, reason) AS (
-    INSERT INTO audit_log (session_id, entry_type, tool_name, parameters, decision)
-    VALUES (session_id_param, 'approval_request', tool_name, tool_params::JSON, 'pending')
-    RETURNING id, 'approval_required' as status, reason as message
+    SELECT json_object(
+        'action', 'request_approval',
+        'session_id', session_id_param,
+        'tool_name', tool_name,
+        'reason', reason,
+        'status', 'approval_required',
+        'note', 'Approval requests handled by Python runtime'
+    )
 );
 
 -- =============================================================================

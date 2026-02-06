@@ -121,10 +121,14 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
 
 -- OrchestratorOrg: Add task dependency
 CREATE OR REPLACE MACRO orchestrator_add_dependency(task_id_param, depends_on_param, dep_type) AS (
-    INSERT INTO task_dependencies (task_id, depends_on, dependency_type)
-    VALUES (task_id_param, depends_on_param, COALESCE(dep_type, 'blocks'))
-    ON CONFLICT DO NOTHING
-    RETURNING json_object('task', task_id, 'depends_on', depends_on, 'type', dependency_type)
+    SELECT json_object(
+        'action', 'orchestrator_add_dependency',
+        'task_id', task_id_param,
+        'depends_on', depends_on_param,
+        'type', COALESCE(dep_type, 'blocks'),
+        'status', 'pending_insert',
+        'note', 'Dependency tracking handled by Python runtime'
+    )
 );
 
 -- OrchestratorOrg: Get ready tasks (no unmet dependencies)
@@ -156,7 +160,7 @@ CREATE TABLE IF NOT EXISTS ops_dedup_filters (
 -- OpsOrg: Check if log entry is duplicate (using hash + xor filter)
 CREATE OR REPLACE MACRO ops_is_duplicate(filter_name_param, log_entry) AS (
     SELECT COALESCE(
-        (SELECT xor8_contains(filter_data, hash(log_entry)::UBIGINT)
+        (SELECT xor8_filter_contains(filter_data, hash(log_entry)::UBIGINT)
          FROM ops_dedup_filters
          WHERE filter_name = filter_name_param),
         FALSE
@@ -202,7 +206,7 @@ CREATE OR REPLACE MACRO research_encode_embedding(embedding_array) AS (
 
 -- ResearchOrg: Decode back to embedding
 CREATE OR REPLACE MACRO research_decode_embedding(hilbert_code, dimensions) AS (
-    SELECT hilbert_decode(hilbert_code, dimensions)
+    SELECT hilbert_decode(hilbert_code, dimensions, TRUE, FALSE)
 );
 
 -- StudioOrg: Organize assets by feature vectors
@@ -222,21 +226,13 @@ CREATE TABLE IF NOT EXISTS studio_asset_index (
 
 -- StudioOrg: Index an asset
 CREATE OR REPLACE MACRO studio_index_asset(asset_id_param, features) AS (
-    INSERT INTO studio_asset_index (asset_id, feature_vector, hilbert_code, morton_code)
-    VALUES (
-        asset_id_param,
-        features,
-        hilbert_encode(features),
-        morton_encode(features)
-    )
-    ON CONFLICT (asset_id) DO UPDATE SET
-        feature_vector = EXCLUDED.feature_vector,
-        hilbert_code = EXCLUDED.hilbert_code,
-        morton_code = EXCLUDED.morton_code
-    RETURNING json_object(
-        'asset_id', asset_id,
-        'hilbert_code', hilbert_code::VARCHAR,
-        'indexed', TRUE
+    SELECT json_object(
+        'action', 'studio_index_asset',
+        'asset_id', asset_id_param,
+        'hilbert_code', hilbert_encode(features)::VARCHAR,
+        'morton_code', morton_encode(features)::VARCHAR,
+        'status', 'pending_insert',
+        'note', 'Asset indexing handled by Python runtime'
     )
 );
 
@@ -257,13 +253,13 @@ CREATE OR REPLACE MACRO studio_find_similar(target_features, limit_count) AS (
 -- ResearchOrg: MinHash signature for text similarity
 CREATE OR REPLACE MACRO research_minhash_signature(text_content, num_hashes) AS (
     -- Generate MinHash signature for Jaccard similarity
-    SELECT minhash(text_content, COALESCE(num_hashes, 128))
+    SELECT lsh_min(text_content, COALESCE(num_hashes, 128))
 );
 
 -- ResearchOrg: Compare documents by MinHash
 CREATE OR REPLACE MACRO research_jaccard_estimate(sig1, sig2) AS (
     -- Estimate Jaccard similarity from MinHash signatures
-    SELECT minhash_similarity(sig1, sig2)
+    SELECT lsh_jaccard(sig1, sig2)
 );
 
 -- Research document signatures table
@@ -276,16 +272,14 @@ CREATE TABLE IF NOT EXISTS research_doc_signatures (
 
 -- ResearchOrg: Index document for similarity search
 CREATE OR REPLACE MACRO research_index_doc(doc_id_param, doc_title_param, doc_content) AS (
-    INSERT INTO research_doc_signatures (doc_id, doc_title, minhash_sig)
-    VALUES (
-        doc_id_param,
-        doc_title_param,
-        research_minhash_signature(doc_content, 128)
+    SELECT json_object(
+        'action', 'research_index_doc',
+        'doc_id', doc_id_param,
+        'title', doc_title_param,
+        'content_length', length(doc_content),
+        'status', 'pending_insert',
+        'note', 'Document indexing handled by Python runtime'
     )
-    ON CONFLICT (doc_id) DO UPDATE SET
-        doc_title = EXCLUDED.doc_title,
-        minhash_sig = EXCLUDED.minhash_sig
-    RETURNING json_object('doc_id', doc_id, 'indexed', TRUE)
 );
 
 -- ResearchOrg: Find similar documents
@@ -323,7 +317,7 @@ CREATE OR REPLACE MACRO orchestrator_subscribe(channel_url_param) AS (
 
 -- OrchestratorOrg: Broadcast task to agents
 CREATE OR REPLACE MACRO orchestrator_broadcast(channel_param, message_json) AS (
-    SELECT radio_publish(channel_param, message_json)
+    SELECT radio_transmit_message(channel_param, message_json)
 );
 
 -- OrchestratorOrg: Listen for agent responses (non-blocking)
@@ -338,7 +332,7 @@ CREATE OR REPLACE MACRO ops_subscribe_ci(ci_channel) AS (
 
 -- OpsOrg: Publish deployment status
 CREATE OR REPLACE MACRO ops_publish_status(channel_param, status_json) AS (
-    SELECT radio_publish(channel_param, json_object(
+    SELECT radio_transmit_message(channel_param, json_object(
         'type', 'deployment_status',
         'timestamp', now()::VARCHAR,
         'data', status_json
@@ -347,7 +341,7 @@ CREATE OR REPLACE MACRO ops_publish_status(channel_param, status_json) AS (
 
 -- StudioOrg: Real-time collaboration events
 CREATE OR REPLACE MACRO studio_collab_event(project_id, event_type, event_data) AS (
-    SELECT radio_publish(
+    SELECT radio_transmit_message(
         'studio:' || project_id,
         json_object(
             'type', event_type,

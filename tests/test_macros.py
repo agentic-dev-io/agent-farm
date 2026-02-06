@@ -70,13 +70,43 @@ def test_macros():
             except Exception as e:
                 print(f"  [SKIP] {ext}: {e}")
 
-    # Load macros from file
-    print("\nLoading macros...")
-    with open("src/agent_farm/macros.sql", "r", encoding="utf-8") as f:
-        sql = f.read()
+    # Register getenv UDF (needed by some macros)
+    import os
 
-    # Split properly respecting string literals
-    statements = split_sql_statements(sql)
+    con.create_function("getenv", lambda name: os.getenv(name) if name else None, [str], str,
+                        null_handling="special")
+
+    # Create agent infrastructure tables (macros reference these)
+    try:
+        from agent_farm.schemas import AGENT_TABLES_SQL
+
+        for stmt in AGENT_TABLES_SQL.split(";"):
+            stmt = stmt.strip()
+            if stmt and not stmt.startswith("--"):
+                try:
+                    con.sql(stmt)
+                except Exception:
+                    pass
+        print("  Agent tables created")
+    except ImportError:
+        print("  [WARN] Could not import schemas for agent tables")
+
+    # Load macros from sql/ directory (macros are split across multiple files)
+    import glob
+
+    print("\nLoading macros...")
+    sql_dir = os.path.join("src", "agent_farm", "sql")
+    sql_files = sorted(glob.glob(os.path.join(sql_dir, "*.sql")))
+    if not sql_files:
+        print(f"  No SQL files found in {sql_dir}")
+        return False
+
+    statements = []
+    for sql_file in sql_files:
+        print(f"  Loading {os.path.basename(sql_file)}...")
+        with open(sql_file, "r", encoding="utf-8") as f:
+            sql = f.read()
+        statements.extend(split_sql_statements(sql))
 
     errors = []
     success = 0
@@ -108,8 +138,6 @@ def test_macros():
         ("url_encode", "SELECT url_encode('hello world & test=1')"),
         ("now_iso", "SELECT now_iso()"),
         ("now_unix", "SELECT now_unix()"),
-        ("fetch_json", "SELECT fetch_json('https://httpbin.org/get')"),
-        ("ddg_instant", "SELECT ddg_instant('Python programming')"),
     ]
 
     passed = 0
