@@ -16,9 +16,28 @@
 [![Security](https://github.com/bjoernbethge/agent-farm/workflows/Security/badge.svg)](https://github.com/bjoernbethge/agent-farm/actions/workflows/security.yml)
 [![Code Quality](https://github.com/bjoernbethge/agent-farm/workflows/Code%20Quality/badge.svg)](https://github.com/bjoernbethge/agent-farm/actions/workflows/code-quality.yml)
 
-**DuckDB multi-org agent swarm with Spec Engine, 175+ SQL macros, meta-learning, MCP Apps, and smart extensions.**
+**DuckDB-based Spec-OS for multi-org agent swarms. Central specification management, 175+ SQL macros, meta-learning, MCP Apps, and smart extensions.**
 
 [DuckDB](https://duckdb.org) | [Ollama](https://ollama.com) | [MCP Protocol](https://modelcontextprotocol.io) | [Query Farm](https://query.farm)
+
+---
+
+## The Story
+
+Agent Farm evolved from a tool suite into a **Spec-OS** — a specification operating system for coordinating AI agent swarms across organizations.
+
+**Timeline:**
+- **Dec 8, 2025:** Foundation (DuckDB + Ollama + MCP)
+- **Dec 8-16, 2025:** Power macros (web search, shell, Python, git)
+- **Feb 2-4, 2026:** Spec Engine revolution (central spec management + meta-learning + intelligence layer)
+- **Feb 6, 2026:** Production ready (initialization fixes, all macros validated)
+
+**Why it matters:**
+Agent Farm answers: **"How do you coordinate multi-org agent swarms with shared spec management?"**
+
+Built on 17+ years of enterprise experience (VWAG, NVIDIA, Adidas), now open source. Not inventing theory — open-sourcing what works in production. This is the proof that **Production Experience → Better Open Source**.
+
+See [`dev/agent-farm-story.md`](../../dev/agent-farm-story.md) for the full history, architecture, and why it's critical infrastructure for agentic-dev-io.
 
 ---
 
