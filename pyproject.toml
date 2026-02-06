@@ -36,8 +36,8 @@ dev = [
 agent-farm = "agent_farm.main:main"
 
 [project.urls]
-Homepage = "https://github.com/bjoernbethge/agent-farm"
-Repository = "https://github.com/bjoernbethge/agent-farm"
+Homepage = "https://github.com/agentic-dev-io/agent-farm"
+Repository = "https://github.com/agentic-dev-io/agent-farm"
 
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]
