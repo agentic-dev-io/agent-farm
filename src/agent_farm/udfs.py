@@ -11,6 +11,9 @@ Usage:
 
 import json
 import os
+from queue import Queue
+from threading import Lock
+from datetime import datetime
 
 import duckdb
 
@@ -377,6 +380,117 @@ def udf_detect_injection(content: str) -> str | None:
     return None
 
 
+# ============================================================================
+# Radio Pub/Sub System (Windows-compatible replacement for radio extension)
+# ============================================================================
+
+# Global in-memory channels (one Queue per channel name)
+_radio_channels: dict[str, Queue] = {}
+_radio_lock = Lock()
+
+
+def _get_or_create_channel(channel_name: str) -> Queue:
+    """Get or create a queue for the given channel."""
+    with _radio_lock:
+        if channel_name not in _radio_channels:
+            _radio_channels[channel_name] = Queue(maxsize=1000)
+        return _radio_channels[channel_name]
+
+
+def udf_radio_subscribe(channel_name: str) -> str:
+    """
+    Subscribe to a radio channel.
+
+    Returns JSON: {"channel": name, "subscribed": true, "timestamp": ISO8601}
+    """
+    if not channel_name:
+        return json.dumps({"error": "channel_name required"})
+
+    channel = _get_or_create_channel(channel_name)
+    return json.dumps({
+        "channel": channel_name,
+        "subscribed": True,
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "mode": "udf_radio"
+    })
+
+
+def udf_radio_transmit_message(channel_name: str, message_json: str) -> str:
+    """
+    Publish a message to a radio channel.
+
+    Args:
+        channel_name: Channel to publish to
+        message_json: JSON string of message
+
+    Returns JSON: {"channel": name, "published": true, "timestamp": ISO8601}
+    """
+    if not channel_name or not message_json:
+        return json.dumps({"error": "channel_name and message_json required"})
+
+    try:
+        channel = _get_or_create_channel(channel_name)
+
+        # Wrap message with metadata
+        envelope = {
+            "channel": channel_name,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "payload": json.loads(message_json) if isinstance(message_json, str) else message_json
+        }
+
+        channel.put_nowait(json.dumps(envelope))
+
+        return json.dumps({
+            "channel": channel_name,
+            "published": True,
+            "timestamp": envelope["timestamp"]
+        })
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+
+def udf_radio_listen(channel_name: str, timeout_ms: int = 1000) -> str:
+    """
+    Listen for messages on a radio channel (non-blocking with timeout).
+
+    Args:
+        channel_name: Channel to listen on
+        timeout_ms: Timeout in milliseconds
+
+    Returns JSON message or {"no_message": true}
+    """
+    if not channel_name:
+        return json.dumps({"error": "channel_name required"})
+
+    try:
+        channel = _get_or_create_channel(channel_name)
+        timeout_sec = (timeout_ms or 1000) / 1000.0
+
+        message_json = channel.get(timeout=timeout_sec)
+        return message_json
+    except:
+        # Timeout or empty queue
+        return json.dumps({"no_message": True, "channel": channel_name})
+
+
+def udf_radio_channel_list() -> str:
+    """
+    List all active radio channels and their queue sizes.
+
+    Returns JSON: {"channels": [{name, queue_size}, ...]}
+    """
+    with _radio_lock:
+        channels = [
+            {"name": name, "queue_size": queue.qsize()}
+            for name, queue in _radio_channels.items()
+        ]
+
+    return json.dumps({
+        "channels": channels,
+        "total": len(channels)
+    })
+
+
 def udf_getenv(name: str) -> str | None:
     """
     Get environment variable value.
@@ -472,6 +586,40 @@ def register_udfs(con: duckdb.DuckDBPyConnection) -> list[str]:
         null_handling="special",
     )
     registered.append("getenv")
+
+    # Radio Pub/Sub UDFs (Windows-compatible, in-memory channels)
+    con.create_function(
+        "radio_subscribe",
+        udf_radio_subscribe,
+        [str],
+        str,
+    )
+    registered.append("radio_subscribe")
+
+    con.create_function(
+        "radio_transmit_message",
+        udf_radio_transmit_message,
+        [str, str],
+        str,
+    )
+    registered.append("radio_transmit_message")
+
+    con.create_function(
+        "radio_listen",
+        udf_radio_listen,
+        [str, int],
+        str,
+        default_null_handling=True,
+    )
+    registered.append("radio_listen")
+
+    con.create_function(
+        "radio_channel_list",
+        udf_radio_channel_list,
+        [],
+        str,
+    )
+    registered.append("radio_channel_list")
 
     # safe_json_extract(json_str, path) -> VARCHAR or NULL
     con.create_function(
