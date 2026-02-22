@@ -585,10 +585,9 @@ class SpecEngine:
             True if started successfully
         """
         try:
-            if api_key:
-                self.con.sql(f"SELECT httpserve_start('0.0.0.0', {port}, 'X-API-Key {api_key}')")
-            else:
-                self.con.sql(f"SELECT httpserve_start('0.0.0.0', {port})")
+            auth = f"X-API-Key {api_key}" if api_key else ""
+            auth_escaped = auth.replace("'", "''")
+            self.con.sql(f"SELECT httpserve_start('0.0.0.0', {port}, '{auth_escaped}')")
             print(f"Spec Engine: HTTP server started on port {port}", file=sys.stderr)
             return True
         except Exception as e:

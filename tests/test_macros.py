@@ -95,9 +95,20 @@ def test_macros():
     # Load macros from sql/ directory (macros are split across multiple files)
     import glob
 
+    from agent_farm.main import SQL_LOAD_ORDER
+
     print("\nLoading macros...")
     sql_dir = os.path.join("src", "agent_farm", "sql")
-    sql_files = sorted(glob.glob(os.path.join(sql_dir, "*.sql")))
+    all_files = [os.path.basename(p) for p in glob.glob(os.path.join(sql_dir, "*.sql"))]
+    sql_files = [
+        os.path.join(sql_dir, f)
+        for f in SQL_LOAD_ORDER
+        if f in all_files
+    ]
+    sql_files += sorted(
+        p for p in glob.glob(os.path.join(sql_dir, "*.sql"))
+        if os.path.basename(p) not in SQL_LOAD_ORDER
+    )
     if not sql_files:
         pytest.skip(f"No SQL files found in {sql_dir}")
 

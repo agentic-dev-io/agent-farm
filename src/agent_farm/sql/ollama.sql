@@ -1,9 +1,7 @@
--- 02_ollama.sql - Ollama and LLM integration macros
+-- ollama.sql - Ollama and LLM integration macros
 
--- Base Ollama API endpoint
 CREATE OR REPLACE MACRO ollama_base() AS 'http://localhost:11434';
 
--- Generic Ollama chat completion (simple)
 CREATE OR REPLACE MACRO ollama_chat(model_name, prompt) AS (
     SELECT json_extract_string(
         http_post(
@@ -19,7 +17,6 @@ CREATE OR REPLACE MACRO ollama_chat(model_name, prompt) AS (
     )
 );
 
--- Ollama chat with messages format (for tool calling)
 CREATE OR REPLACE MACRO ollama_chat_messages(model_name, messages_json) AS (
     SELECT http_post(
         ollama_base() || '/api/chat',
@@ -32,7 +29,6 @@ CREATE OR REPLACE MACRO ollama_chat_messages(model_name, messages_json) AS (
     ).body
 );
 
--- Ollama chat WITH tools (function calling)
 CREATE OR REPLACE MACRO ollama_chat_with_tools(model_name, messages_json, tools_json) AS (
     SELECT http_post(
         ollama_base() || '/api/chat',
@@ -46,17 +42,14 @@ CREATE OR REPLACE MACRO ollama_chat_with_tools(model_name, messages_json, tools_
     ).body
 );
 
--- Extract tool calls from Ollama response
 CREATE OR REPLACE MACRO extract_tool_calls(response_body) AS (
     SELECT json_extract(response_body, '$.message.tool_calls')
 );
 
--- Extract text response from Ollama response
 CREATE OR REPLACE MACRO extract_response(response_body) AS (
     SELECT json_extract_string(response_body, '$.message.content')
 );
 
--- Ollama embeddings
 CREATE OR REPLACE MACRO ollama_embed(model_name, text_input) AS (
     SELECT json_extract(
         http_post(
@@ -71,7 +64,6 @@ CREATE OR REPLACE MACRO ollama_embed(model_name, text_input) AS (
     )::FLOAT[]
 );
 
--- Cloud models via Ollama Gateway
 CREATE OR REPLACE MACRO deepseek(prompt) AS ollama_chat('deepseek-v3.1:671b-cloud', prompt);
 CREATE OR REPLACE MACRO kimi(prompt) AS ollama_chat('kimi-k2:1t-cloud', prompt);
 CREATE OR REPLACE MACRO kimi_think(prompt) AS ollama_chat('kimi-k2-thinking:cloud', prompt);
@@ -83,7 +75,6 @@ CREATE OR REPLACE MACRO minimax(prompt) AS ollama_chat('minimax-m2:cloud', promp
 CREATE OR REPLACE MACRO gpt_oss(prompt) AS ollama_chat('gpt-oss:120b-cloud', prompt);
 CREATE OR REPLACE MACRO gpt_oss_small(prompt) AS ollama_chat('gpt-oss:20b-cloud', prompt);
 
--- Cloud models with tool calling
 CREATE OR REPLACE MACRO deepseek_tools(prompt, tools_json) AS (
     SELECT ollama_chat_with_tools(
         'deepseek-v3.1:671b-cloud',
@@ -116,7 +107,6 @@ CREATE OR REPLACE MACRO qwen3_coder_tools(prompt, tools_json) AS (
     )
 );
 
--- MCP tool helpers
 CREATE OR REPLACE MACRO mcp_to_ollama_tool(tool_name, description, input_schema_json) AS (
     SELECT json_object(
         'type', 'function',
@@ -132,7 +122,6 @@ CREATE OR REPLACE MACRO build_tools_array(tools_list) AS (
     SELECT json_group_array(json(tool)) FROM (SELECT unnest(tools_list) as tool)
 );
 
--- Agentic helpers
 CREATE OR REPLACE MACRO agent_call(model_name, system_prompt, user_prompt, tools_json) AS (
     SELECT ollama_chat_with_tools(
         model_name,
@@ -149,7 +138,6 @@ CREATE OR REPLACE MACRO has_tool_calls(response_body) AS (
         AND json_array_length(json_extract(response_body, '$.message.tool_calls')) > 0
 );
 
--- Vector/Embedding helpers
 CREATE OR REPLACE MACRO cosine_sim(vec1, vec2) AS (
     list_cosine_similarity(vec1, vec2)
 );
@@ -162,7 +150,6 @@ CREATE OR REPLACE MACRO semantic_score(query_text, doc_text) AS (
     cosine_sim(embed(query_text), embed(doc_text))
 );
 
--- RAG helpers
 CREATE OR REPLACE MACRO rag_query(question, context) AS
     deepseek('Answer based on the following context:\n\n' || context || '\n\nQuestion: ' || question);
 

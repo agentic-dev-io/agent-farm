@@ -1,4 +1,4 @@
--- 08_mcp_apps.sql - MCP Apps Extension (ext-apps) with minijinja templates
+-- ui.sql - MCP Apps, templates, onboarding, approval UI
 
 -- =============================================================================
 -- MCP APPS TABLES

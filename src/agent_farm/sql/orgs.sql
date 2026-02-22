@@ -1,4 +1,4 @@
--- 06_orgs.sql - Organization management and inter-org communication
+-- orgs.sql - Organization tables, permissions, orchestrator routing
 
 -- =============================================================================
 -- ORG TABLES (if not created by main.py)

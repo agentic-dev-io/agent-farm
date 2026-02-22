@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Tool configs
+.serena/
+
+# Working docs (plans, research)
+docs/plans/
+docs/typer-reference.md

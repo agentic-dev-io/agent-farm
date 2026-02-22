@@ -1,4 +1,4 @@
--- 03_tools.sql - Web search, shell, file ops, git macros
+-- tools.sql - Web search, shell, file ops, git macros
 
 -- =============================================================================
 -- WEB SEARCH

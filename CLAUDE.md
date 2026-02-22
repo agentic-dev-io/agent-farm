@@ -24,21 +24,23 @@ This file provides context and instructions for AI agents (Claude, Copilot, etc.
 ```
 agent-farm/
 ├── src/agent_farm/             # Main Python package
-│   ├── main.py                 # Entry point, MCP server initialization
+│   ├── cli.py                  # Typer CLI (mcp, status, spec, app, sql)
+│   ├── repl.py                 # Interactive REPL with slash-commands
+│   ├── main.py                 # DuckDB init, extension loading, SQL macros
 │   ├── spec_engine.py          # Spec Engine class (central component)
 │   ├── orgs.py                 # Organization configurations (5 orgs)
 │   ├── schemas.py              # Data models, enums, SQL table definitions
 │   ├── udfs.py                 # Python UDFs (agent_chat, agent_tools, etc.)
 │   └── sql/                    # Modular SQL macros (175+)
-│       ├── 01_base.sql         # Base utilities (url_encode, timestamps)
-│       ├── 02_ollama.sql       # LLM model macros (31 macros)
-│       ├── 03_tools.sql        # Web search, shell, Python, fetch, file, git (43 macros)
-│       ├── 04_agent.sql        # Security policies, audit, secure ops, injection detection (25 macros)
-│       ├── 05_harness.sql      # Agent harness, Anthropic + Ollama routing (15 macros)
-│       ├── 06_orgs.sql         # Org tables, permissions, orchestrator routing (16 macros)
-│       ├── 07_org_tools.sql    # SearXNG, CI/CD, notes board, render jobs (~30 macros)
-│       ├── 08_mcp_apps.sql     # MCP Apps, templates, onboarding, settings (50+ macros)
-│       └── 09_smart_extensions.sql  # JSONata, DuckPGQ, Bitfilters, Lindel, LSH, Radio (25+ macros)
+│       ├── base.sql            # Base utilities (url_encode, timestamps)
+│       ├── ollama.sql          # LLM model macros (31 macros)
+│       ├── tools.sql           # Web search, shell, Python, fetch, file, git (43 macros)
+│       ├── agent.sql           # Security policies, audit, secure ops, injection detection (25 macros)
+│       ├── harness.sql         # Agent harness, Anthropic + Ollama routing (15 macros)
+│       ├── orgs.sql            # Org tables, permissions, orchestrator routing (16 macros)
+│       ├── org_tools.sql       # SearXNG, CI/CD, notes board, render jobs (~30 macros)
+│       ├── ui.sql              # MCP Apps, templates, onboarding, settings (50+ macros)
+│       └── extensions.sql      # JSONata, DuckPGQ, Bitfilters, Lindel, LSH, Radio (25+ macros)
 ├── db/                         # Spec Engine SQL files
 │   ├── spec_engine_schema.sql  # Core schema (7 tables, 19 views, 7 sequences)
 │   ├── spec_engine_macros.sql  # 50+ spec query/mutation/template/validation macros
@@ -118,15 +120,15 @@ stop_http_server()
 
 175+ SQL macros organized across 9 modular files:
 
-- **01_base.sql**: `get_secret`, `url_encode`, `now_iso`, `now_unix`
-- **02_ollama.sql**: `ollama_chat`, `deepseek`, `kimi`, `kimi_think`, `gemini`, `qwen3_coder`, `glm`, `minimax`, `gpt_oss`, `embed`, `semantic_score`, `rag_query`, `cosine_sim`, tool-calling variants
-- **03_tools.sql**: `ddg_instant`, `brave_search`, `searxng`, `shell`, `cmd`, `pwsh`, `py`, `py_with`, `fetch`, `fetch_json`, `post_json`, `read_file`, `ls`, `git_status`, `git_log`, `git_diff`, `load_csv_url`, `search_and_summarize`, `review_code`, `explain_code`, `generate_py`
-- **04_agent.sql**: `secure_read`, `secure_write`, `secure_shell`, `detect_injection`, `log_tool_call`, `is_allowed_path`, `requires_approval`
-- **05_harness.sql**: `model_call`, `agent_step`, `quick_agent`, `anthropic_chat`, `agent_tools_schema`, `execute_tool_safe`
-- **06_orgs.sql**: `get_org_prompt`, `is_org_tool_allowed`, `call_org`, `orchestrator_tools_schema`
-- **07_org_tools.sql**: `searxng_search`, `ci_trigger`, `deploy_service`, `notes_board_create`, `test_run`, `git_patch`, `execute_org_tool`
-- **08_mcp_apps.sql**: `render_app`, `open_app`, `studio_present_choices`, `dev_open_vibe_coder`, `open_approval_ui`, `open_model_selector`, `smart_execute_tool`
-- **09_smart_extensions.sql**: `json_transform`, `orchestrator_find_path`, `ops_is_duplicate`, `research_find_similar_docs`, `orchestrator_broadcast`, `smart_route`
+- **base.sql**: `get_secret`, `url_encode`, `now_iso`, `now_unix`
+- **ollama.sql**: `ollama_chat`, `deepseek`, `kimi`, `kimi_think`, `gemini`, `qwen3_coder`, `glm`, `minimax`, `gpt_oss`, `embed`, `semantic_score`, `rag_query`, `cosine_sim`, tool-calling variants
+- **tools.sql**: `ddg_instant`, `brave_search`, `searxng`, `shell`, `cmd`, `pwsh`, `py`, `py_with`, `fetch`, `fetch_json`, `post_json`, `read_file`, `ls`, `git_status`, `git_log`, `git_diff`, `load_csv_url`, `search_and_summarize`, `review_code`, `explain_code`, `generate_py`
+- **agent.sql**: `secure_read`, `secure_write`, `secure_shell`, `detect_injection`, `log_tool_call`, `is_allowed_path`, `requires_approval`
+- **harness.sql**: `model_call`, `agent_step`, `quick_agent`, `anthropic_chat`, `agent_tools_schema`, `execute_tool_safe`
+- **orgs.sql**: `get_org_prompt`, `is_org_tool_allowed`, `call_org`, `orchestrator_tools_schema`
+- **org_tools.sql**: `searxng_search`, `ci_trigger`, `deploy_service`, `notes_board_create`, `test_run`, `git_patch`, `execute_org_tool`
+- **ui.sql**: `render_app`, `open_app`, `studio_present_choices`, `dev_open_vibe_coder`, `open_approval_ui`, `open_model_selector`, `smart_execute_tool`
+- **extensions.sql**: `json_transform`, `orchestrator_find_path`, `ops_is_duplicate`, `research_find_similar_docs`, `orchestrator_broadcast`, `smart_route`
 
 Spec Engine macros (`db/spec_engine_macros.sql`):
 - `spec_list_by_kind`, `spec_search`, `spec_get`, `spec_get_payload`, `spec_get_doc`
@@ -197,8 +199,8 @@ uv run pytest tests/ --cov=src/agent_farm
 2. **New SQL Macro**: Add to appropriate file in `src/agent_farm/sql/`
 3. **New Spec Engine Method**: Add to `src/agent_farm/spec_engine.py`
 4. **New MCP Tool**: Register in `register_spec_engine_tools()`
-5. **New Smart Extension**: Add to `src/agent_farm/sql/09_smart_extensions.sql`
-6. **New MCP App**: Add template + macros to `src/agent_farm/sql/08_mcp_apps.sql`
+5. **New Smart Extension**: Add to `src/agent_farm/sql/extensions.sql`
+6. **New MCP App**: Add template + macros to `src/agent_farm/sql/ui.sql`
 
 ## Environment Variables
 

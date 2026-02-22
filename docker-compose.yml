@@ -1,0 +1,27 @@
+services:
+  agent-farm:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - farm-data:/data
+    environment:
+      DUCKDB_DATABASE: /data/farm.db
+      SPEC_ENGINE_HTTP_PORT: "8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import duckdb; print('ok')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  test:
+    build:
+      context: .
+      args:
+        INSTALL_DEV: "1"
+    command: ["pytest", "tests/", "-v", "--tb=short"]
+    environment:
+      DUCKDB_DATABASE: ":memory:"
+
+volumes:
+  farm-data:

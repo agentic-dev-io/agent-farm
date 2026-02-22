@@ -1,4 +1,4 @@
--- 09_smart_extensions.sql - Smart Extension Macros per Organization
+-- extensions.sql - JSONata, DuckPGQ, Bitfilters, Lindel, LSH, Radio
 -- Makes the system smarter through targeted extension usage
 
 -- =============================================================================

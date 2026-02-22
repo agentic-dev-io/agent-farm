@@ -1,4 +1,4 @@
--- 05_harness.sql - Agent harness, loop, and Anthropic compatibility
+-- harness.sql - Agent harness, Anthropic + Ollama routing, tool execution
 
 -- =============================================================================
 -- ANTHROPIC API COMPATIBILITY

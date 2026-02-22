@@ -1,5 +1,4 @@
-# Dockerfile for farmer_agent with DuckDB extensions
-# Use this if radio or other extensions fail to load on Windows
+# Agent Farm — DuckDB Spec-OS for multi-org AI agent swarms
 
 FROM python:3.11-slim
 
@@ -19,9 +18,11 @@ COPY pyproject.toml uv.lock ./
 COPY src/ src/
 COPY README.md .
 COPY scripts/ scripts/
+COPY tests/ tests/
 
-# Install dependencies using uv sync
-RUN uv sync --frozen --no-dev
+# Build arg for dev deps (pytest etc.)
+ARG INSTALL_DEV=0
+RUN if [ "$INSTALL_DEV" = "1" ]; then uv sync --frozen --all-extras; else uv sync --frozen --no-dev; fi
 
 # Pre-install DuckDB extensions (with error handling for unavailable extensions)
 RUN /app/.venv/bin/python scripts/install_extensions.py
@@ -39,4 +40,4 @@ USER farmer
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8080
 
-CMD ["python", "-m", "agent_farm"]
+CMD ["agent-farm", "mcp"]

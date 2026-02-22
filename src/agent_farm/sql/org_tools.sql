@@ -1,4 +1,4 @@
--- 07_org_tools.sql - Organization-specific tool implementations
+-- org_tools.sql - Org-specific tools (SearXNG, CI/CD, notes, render)
 
 -- =============================================================================
 -- SEARXNG SEARCH (ResearchOrg)
@@ -282,7 +282,7 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
             )
 
         -- =========================================
-        -- SMART EXTENSION TOOLS (09_smart_extensions.sql)
+        -- SMART EXTENSION TOOLS (extensions.sql)
         -- =========================================
 
         -- JSONata Tools

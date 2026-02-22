@@ -292,6 +292,19 @@ def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
     print("Runtime tables created.", file=sys.stderr)
 
 
+SQL_LOAD_ORDER = [
+    "base.sql",
+    "ollama.sql",
+    "tools.sql",
+    "agent.sql",
+    "harness.sql",
+    "orgs.sql",
+    "org_tools.sql",
+    "ui.sql",
+    "extensions.sql",
+]
+
+
 def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
     """
     Load SQL macros from the sql/ directory.
@@ -301,7 +314,9 @@ def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
     total_loaded = 0
 
     if os.path.isdir(sql_dir):
-        sql_files = sorted(f for f in os.listdir(sql_dir) if f.endswith(".sql"))
+        all_files = [f for f in os.listdir(sql_dir) if f.endswith(".sql") and not f.startswith(".")]
+        sql_files = [f for f in SQL_LOAD_ORDER if f in all_files]
+        sql_files += sorted(f for f in all_files if f not in SQL_LOAD_ORDER)
         for sql_file in sql_files:
             sql_path = os.path.join(sql_dir, sql_file)
             with open(sql_path, "r", encoding="utf-8") as f:
@@ -460,10 +475,9 @@ def main():
     if http_port:
         try:
             port = int(http_port)
-            if http_api_key:
-                con.sql(f"SELECT httpserve_start('0.0.0.0', {port}, 'X-API-Key {http_api_key}')")
-            else:
-                con.sql(f"SELECT httpserve_start('0.0.0.0', {port})")
+            auth = f"X-API-Key {http_api_key}" if http_api_key else ""
+            auth_escaped = auth.replace("'", "''")
+            con.sql(f"SELECT httpserve_start('0.0.0.0', {port}, '{auth_escaped}')")
             print(f"Spec Engine HTTP server started on port {port}", file=sys.stderr)
         except Exception as e:
             print(f"Failed to start HTTP server: {e}", file=sys.stderr)

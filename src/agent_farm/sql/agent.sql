@@ -1,4 +1,4 @@
--- 04_agent.sql - Secure Desktop Agent infrastructure
+-- agent.sql - Policy, security, approval flow, injection detection
 -- Policy engine, harness, approval flow, injection detection
 
 -- =============================================================================
