@@ -11,9 +11,9 @@ Usage:
 
 import json
 import os
+from datetime import datetime
 from queue import Queue
 from threading import Lock
-from datetime import datetime
 
 import duckdb
 
@@ -406,13 +406,15 @@ def udf_radio_subscribe(channel_name: str) -> str:
     if not channel_name:
         return json.dumps({"error": "channel_name required"})
 
-    channel = _get_or_create_channel(channel_name)
-    return json.dumps({
-        "channel": channel_name,
-        "subscribed": True,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "mode": "udf_radio"
-    })
+    _get_or_create_channel(channel_name)
+    return json.dumps(
+        {
+            "channel": channel_name,
+            "subscribed": True,
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "mode": "udf_radio",
+        }
+    )
 
 
 def udf_radio_transmit_message(channel_name: str, message_json: str) -> str:
@@ -435,16 +437,14 @@ def udf_radio_transmit_message(channel_name: str, message_json: str) -> str:
         envelope = {
             "channel": channel_name,
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "payload": json.loads(message_json) if isinstance(message_json, str) else message_json
+            "payload": json.loads(message_json) if isinstance(message_json, str) else message_json,
         }
 
         channel.put_nowait(json.dumps(envelope))
 
-        return json.dumps({
-            "channel": channel_name,
-            "published": True,
-            "timestamp": envelope["timestamp"]
-        })
+        return json.dumps(
+            {"channel": channel_name, "published": True, "timestamp": envelope["timestamp"]}
+        )
     except Exception as e:
         return json.dumps({"error": str(e)})
 
@@ -468,7 +468,7 @@ def udf_radio_listen(channel_name: str, timeout_ms: int = 1000) -> str:
 
         message_json = channel.get(timeout=timeout_sec)
         return message_json
-    except:
+    except Exception:
         # Timeout or empty queue
         return json.dumps({"no_message": True, "channel": channel_name})
 
@@ -481,14 +481,10 @@ def udf_radio_channel_list() -> str:
     """
     with _radio_lock:
         channels = [
-            {"name": name, "queue_size": queue.qsize()}
-            for name, queue in _radio_channels.items()
+            {"name": name, "queue_size": queue.qsize()} for name, queue in _radio_channels.items()
         ]
 
-    return json.dumps({
-        "channels": channels,
-        "total": len(channels)
-    })
+    return json.dumps({"channels": channels, "total": len(channels)})
 
 
 def udf_getenv(name: str) -> str | None:

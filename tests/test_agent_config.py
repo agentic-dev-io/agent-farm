@@ -109,13 +109,17 @@ def test_agent_config_insert():
     """)
 
     # Query and verify
-    result = con.sql("SELECT name, role, security_profile FROM agent_config WHERE id = 'agent-1'").fetchone()
-    assert result == ('Test Agent', 'code', 'standard'), f"Unexpected result: {result}"
+    result = con.sql(
+        "SELECT name, role, security_profile FROM agent_config WHERE id = 'agent-1'"
+    ).fetchone()
+    assert result == ("Test Agent", "code", "standard"), f"Unexpected result: {result}"
 
     ws_count = con.sql("SELECT COUNT(*) FROM workspaces WHERE agent_id = 'agent-1'").fetchone()[0]
     assert ws_count == 2, f"Expected 2 workspaces, got {ws_count}"
 
-    shell = con.sql("SELECT shell_enabled FROM security_policy WHERE agent_id = 'agent-1'").fetchone()[0]
+    shell = con.sql(
+        "SELECT shell_enabled FROM security_policy WHERE agent_id = 'agent-1'"
+    ).fetchone()[0]
     assert shell is False, f"Expected shell_enabled=False, got {shell}"
 
     print("[PASS] Agent config insert/query works")
@@ -142,7 +146,9 @@ def test_path_in_workspace_logic():
 
     for check_path, ws_path, expected in tests:
         result = con.sql(f"SELECT path_in_workspace('{check_path}', '{ws_path}')").fetchone()[0]
-        assert result == expected, f"path_in_workspace('{check_path}', '{ws_path}') = {result}, expected {expected}"
+        assert result == expected, (
+            f"path_in_workspace('{check_path}', '{ws_path}') = {result}, expected {expected}"
+        )
 
     print("[PASS] Path workspace checking works")
 
@@ -183,7 +189,9 @@ def test_blocked_command_logic():
 
     for agent_id, cmd, expected in tests:
         result = con.sql(f"SELECT is_blocked_command('{agent_id}', '{cmd}')").fetchone()[0]
-        assert result == expected, f"is_blocked_command('{agent_id}', '{cmd}') = {result}, expected {expected}"
+        assert result == expected, (
+            f"is_blocked_command('{agent_id}', '{cmd}') = {result}, expected {expected}"
+        )
 
     print("[PASS] Blocked command checking works")
 

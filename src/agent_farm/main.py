@@ -393,7 +393,7 @@ def main():
     try:
         from .spec_engine import get_spec_engine, register_spec_engine_tools
 
-        spec_engine = get_spec_engine(con)
+        get_spec_engine(con)
         spec_tools = register_spec_engine_tools(con)
         print(f"Spec Engine: Registered {len(spec_tools)} UDFs", file=sys.stderr)
     except ImportError as e:

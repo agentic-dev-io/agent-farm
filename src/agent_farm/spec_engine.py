@@ -97,7 +97,9 @@ class SpecEngine:
                     if required:
                         print(f"Spec Engine: REQUIRED extension {ext} failed: {e}", file=sys.stderr)
                     else:
-                        print(f"Spec Engine: Optional extension {ext} skipped: {e}", file=sys.stderr)
+                        print(
+                            f"Spec Engine: Optional extension {ext} skipped: {e}", file=sys.stderr
+                        )
 
     def _has_non_comment_content(self, stmt: str) -> bool:
         """Check if a SQL statement has any non-comment content."""
@@ -188,7 +190,10 @@ class SpecEngine:
         intel_path = db_dir / "intelligence.sql"
         if intel_path.exists():
             intel_count = self._load_sql_file(str(intel_path))
-            print(f"Spec Engine: Loaded intelligence layer ({intel_count} statements)", file=sys.stderr)
+            print(
+                f"Spec Engine: Loaded intelligence layer ({intel_count} statements)",
+                file=sys.stderr,
+            )
 
     def _load_macros(self) -> None:
         """Load the Spec Engine macros including RAG macros."""
@@ -210,7 +215,9 @@ class SpecEngine:
         try:
             result = self.con.sql("SELECT COUNT(*) FROM spec_objects").fetchone()
             if result and result[0] > 0:
-                print(f"Spec Engine: {result[0]} specs already exist, skipping seed", file=sys.stderr)
+                print(
+                    f"Spec Engine: {result[0]} specs already exist, skipping seed", file=sys.stderr
+                )
                 return
         except Exception:
             pass  # Table might not exist yet
@@ -319,8 +326,17 @@ class SpecEngine:
             return None
 
         columns = [
-            "id", "kind", "name", "version", "status", "summary",
-            "created_at", "updated_at", "doc", "payload", "schema_ref"
+            "id",
+            "kind",
+            "name",
+            "version",
+            "status",
+            "summary",
+            "created_at",
+            "updated_at",
+            "doc",
+            "payload",
+            "schema_ref",
         ]
         spec = dict(zip(columns, result))
 
@@ -361,10 +377,7 @@ class SpecEngine:
                 o.kind, o.name
             LIMIT ?
         """
-        result = self.con.execute(
-            search_query,
-            [query, query, query, query, limit]
-        ).fetchall()
+        result = self.con.execute(search_query, [query, query, query, query, limit]).fetchall()
 
         columns = ["id", "kind", "name", "version", "status", "summary"]
         return [dict(zip(columns, row)) for row in result]
@@ -491,8 +504,7 @@ class SpecEngine:
             schema_str = json.dumps(schema_json)
 
             validation_result = self.con.execute(
-                validate_query,
-                [schema_str, payload_json]
+                validate_query, [schema_str, payload_json]
             ).fetchone()
 
             if validation_result and validation_result[0]:
@@ -647,7 +659,7 @@ class SpecEngine:
                 INSERT INTO spec_objects (id, kind, name, version, status, summary)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                [next_id, kind, name, version, status, summary]
+                [next_id, kind, name, version, status, summary],
             )
 
             # Insert doc if provided
@@ -657,7 +669,7 @@ class SpecEngine:
                 ).fetchone()[0]
                 self.con.execute(
                     "INSERT INTO spec_docs (id, object_id, doc) VALUES (?, ?, ?)",
-                    [doc_id, next_id, doc]
+                    [doc_id, next_id, doc],
                 )
 
             # Insert payload if provided
@@ -667,8 +679,9 @@ class SpecEngine:
                 ).fetchone()[0]
                 payload_json = json.dumps(payload) if isinstance(payload, dict) else payload
                 self.con.execute(
-                    "INSERT INTO spec_payloads (id, object_id, payload, schema_ref) VALUES (?, ?, ?, ?)",
-                    [payload_id, next_id, payload_json, schema_ref]
+                    "INSERT INTO spec_payloads (id, object_id, payload, schema_ref)"
+                    " VALUES (?, ?, ?, ?)",
+                    [payload_id, next_id, payload_json, schema_ref],
                 )
 
             return {"id": next_id, "created": True}
@@ -712,8 +725,7 @@ class SpecEngine:
                 updates.append("updated_at = current_timestamp")
                 params.append(id)
                 self.con.execute(
-                    f"UPDATE spec_objects SET {', '.join(updates)} WHERE id = ?",
-                    params
+                    f"UPDATE spec_objects SET {', '.join(updates)} WHERE id = ?", params
                 )
 
             if doc is not None:
@@ -722,17 +734,14 @@ class SpecEngine:
                     "SELECT id FROM spec_docs WHERE object_id = ?", [id]
                 ).fetchone()
                 if existing:
-                    self.con.execute(
-                        "UPDATE spec_docs SET doc = ? WHERE object_id = ?",
-                        [doc, id]
-                    )
+                    self.con.execute("UPDATE spec_docs SET doc = ? WHERE object_id = ?", [doc, id])
                 else:
                     doc_id = self.con.execute(
                         "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_docs"
                     ).fetchone()[0]
                     self.con.execute(
                         "INSERT INTO spec_docs (id, object_id, doc) VALUES (?, ?, ?)",
-                        [doc_id, id, doc]
+                        [doc_id, id, doc],
                     )
 
             if payload is not None:
@@ -743,7 +752,7 @@ class SpecEngine:
                 if existing:
                     self.con.execute(
                         "UPDATE spec_payloads SET payload = ? WHERE object_id = ?",
-                        [payload_json, id]
+                        [payload_json, id],
                     )
                 else:
                     payload_id = self.con.execute(
@@ -751,7 +760,7 @@ class SpecEngine:
                     ).fetchone()[0]
                     self.con.execute(
                         "INSERT INTO spec_payloads (id, object_id, payload) VALUES (?, ?, ?)",
-                        [payload_id, id, payload_json]
+                        [payload_id, id, payload_json],
                     )
 
             return {"updated": True}
@@ -827,7 +836,7 @@ class SpecEngine:
                 "SELECT DISTINCT kind FROM spec_objects ORDER BY kind"
             ).fetchall()
             return [row[0] for row in result]
-        except Exception as e:
+        except Exception:
             return []
 
     def is_initialized(self) -> bool:
@@ -853,8 +862,7 @@ class SpecEngine:
         try:
             # Get current values
             result = self.con.execute(
-                "SELECT use_count, success_rate FROM spec_objects WHERE id = ?",
-                [spec_id]
+                "SELECT use_count, success_rate FROM spec_objects WHERE id = ?", [spec_id]
             ).fetchone()
 
             if not result:
@@ -866,7 +874,9 @@ class SpecEngine:
             if use_count == 0:
                 new_success_rate = 1.0 if was_success else 0.0
             else:
-                new_success_rate = (success_rate * use_count + (1.0 if was_success else 0.0)) / (use_count + 1)
+                new_success_rate = (success_rate * use_count + (1.0 if was_success else 0.0)) / (
+                    use_count + 1
+                )
 
             # Update
             self.con.execute(
@@ -877,13 +887,13 @@ class SpecEngine:
                     updated_at = current_timestamp
                 WHERE id = ?
                 """,
-                [new_success_rate, spec_id]
+                [new_success_rate, spec_id],
             )
 
             return {
                 "spec_id": spec_id,
                 "use_count": use_count + 1,
-                "success_rate": new_success_rate
+                "success_rate": new_success_rate,
             }
 
         except Exception as e:
@@ -921,7 +931,9 @@ class SpecEngine:
 
             self.con.execute(
                 """
-                INSERT INTO spec_feedback (id, spec_id, session_id, feedback_type, context, outcome, score, notes)
+                INSERT INTO spec_feedback
+                    (id, spec_id, session_id, feedback_type,
+                     context, outcome, score, notes)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
@@ -933,7 +945,7 @@ class SpecEngine:
                     json.dumps(outcome) if outcome else None,
                     score,
                     notes,
-                ]
+                ],
             )
 
             # Also update usage stats
@@ -958,7 +970,8 @@ class SpecEngine:
         Args:
             from_id: Source spec ID
             to_id: Target spec ID
-            rel_type: Relationship type ('uses', 'extends', 'requires', 'implements', 'derived_from')
+            rel_type: Relationship type
+                ('uses', 'extends', 'requires', 'implements', 'derived_from')
             metadata: Optional metadata about the relationship
 
         Returns:
@@ -975,7 +988,7 @@ class SpecEngine:
                 VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT (from_id, to_id, rel_type) DO UPDATE SET metadata = EXCLUDED.metadata
                 """,
-                [rel_id, from_id, to_id, rel_type, json.dumps(metadata) if metadata else None]
+                [rel_id, from_id, to_id, rel_type, json.dumps(metadata) if metadata else None],
             )
 
             return {"relationship_id": rel_id}
@@ -1013,10 +1026,19 @@ class SpecEngine:
             """
             result = self.con.execute(query, [spec_id, spec_id]).fetchall()
 
-            columns = ["rel_type", "direction", "id", "kind", "name", "version", "status", "summary"]
+            columns = [
+                "rel_type",
+                "direction",
+                "id",
+                "kind",
+                "name",
+                "version",
+                "status",
+                "summary",
+            ]
             return [dict(zip(columns, row)) for row in result]
 
-        except Exception as e:
+        except Exception:
             return []
 
     def get_spec_performance(self, spec_id: int) -> dict[str, Any]:
@@ -1050,8 +1072,17 @@ class SpecEngine:
             if not result:
                 return {"error": f"Spec {spec_id} not found"}
 
-            columns = ["id", "kind", "name", "use_count", "success_rate", "confidence",
-                       "feedback_count", "avg_score", "adaptation_count"]
+            columns = [
+                "id",
+                "kind",
+                "name",
+                "use_count",
+                "success_rate",
+                "confidence",
+                "feedback_count",
+                "avg_score",
+                "adaptation_count",
+            ]
             return dict(zip(columns, result))
 
         except Exception as e:
@@ -1086,11 +1117,20 @@ class SpecEngine:
             """
             result = self.con.execute(query, [min_usage, max_success_rate]).fetchall()
 
-            columns = ["id", "kind", "name", "version", "status",
-                       "use_count", "success_rate", "confidence", "summary"]
+            columns = [
+                "id",
+                "kind",
+                "name",
+                "version",
+                "status",
+                "use_count",
+                "success_rate",
+                "confidence",
+                "summary",
+            ]
             return [dict(zip(columns, row)) for row in result]
 
-        except Exception as e:
+        except Exception:
             return []
 
     def record_adaptation(
@@ -1123,7 +1163,9 @@ class SpecEngine:
 
             self.con.execute(
                 """
-                INSERT INTO spec_adaptations (id, spec_id, adaptation_type, reason, changes, metrics_before, metrics_after)
+                INSERT INTO spec_adaptations
+                    (id, spec_id, adaptation_type, reason,
+                     changes, metrics_before, metrics_after)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
@@ -1134,7 +1176,7 @@ class SpecEngine:
                     json.dumps(changes),
                     json.dumps(metrics_before) if metrics_before else None,
                     json.dumps(metrics_after) if metrics_after else None,
-                ]
+                ],
             )
 
             return {"adaptation_id": adaptation_id}
@@ -1172,7 +1214,9 @@ class SpecEngine:
 
             self.con.execute(
                 """
-                INSERT INTO spec_learning (id, learning_type, category, description, evidence, confidence, application)
+                INSERT INTO spec_learning
+                    (id, learning_type, category, description,
+                     evidence, confidence, application)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
@@ -1183,7 +1227,7 @@ class SpecEngine:
                     json.dumps(evidence) if evidence else None,
                     confidence,
                     application,
-                ]
+                ],
             )
 
             return {"learning_id": learning_id}
@@ -1215,8 +1259,15 @@ class SpecEngine:
             """
             result = self.con.execute(query, [limit]).fetchall()
 
-            columns = ["id", "learning_type", "category", "description",
-                       "confidence", "application", "created_at"]
+            columns = [
+                "id",
+                "learning_type",
+                "category",
+                "description",
+                "confidence",
+                "application",
+                "created_at",
+            ]
             specs = []
             for row in result:
                 spec = dict(zip(columns, row))
@@ -1225,7 +1276,7 @@ class SpecEngine:
                 specs.append(spec)
             return specs
 
-        except Exception as e:
+        except Exception:
             return []
 
     # =========================================================================
@@ -1264,7 +1315,7 @@ class SpecEngine:
                     updated_at = current_timestamp
                 WHERE id = ?
                 """,
-                [source_url, upstream_version, source_ref, spec_id]
+                [source_url, upstream_version, source_ref, spec_id],
             )
             return {"updated": True, "sync_status": "synced"}
 
@@ -1292,9 +1343,18 @@ class SpecEngine:
             """
             result = self.con.execute(query).fetchall()
 
-            columns = ["id", "kind", "name", "version", "source_type",
-                       "source_url", "upstream_version", "last_sync",
-                       "sync_status", "summary"]
+            columns = [
+                "id",
+                "kind",
+                "name",
+                "version",
+                "source_type",
+                "source_url",
+                "upstream_version",
+                "last_sync",
+                "sync_status",
+                "summary",
+            ]
             specs = []
             for row in result:
                 spec = dict(zip(columns, row))
@@ -1303,7 +1363,7 @@ class SpecEngine:
                 specs.append(spec)
             return specs
 
-        except Exception as e:
+        except Exception:
             return []
 
     # =========================================================================
@@ -1337,6 +1397,7 @@ class SpecEngine:
         """
         try:
             import hashlib
+
             content_hash = hashlib.sha256(content.encode()).hexdigest()
 
             emb_id = self.con.execute(
@@ -1346,7 +1407,8 @@ class SpecEngine:
             self.con.execute(
                 """
                 INSERT INTO spec_embeddings
-                    (id, spec_id, org_id, content_type, content_hash, content, embedding, embedding_model, metadata)
+                    (id, spec_id, org_id, content_type, content_hash,
+                     content, embedding, embedding_model, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (content_hash, chunk_index) DO UPDATE SET
                     embedding = EXCLUDED.embedding
@@ -1361,7 +1423,7 @@ class SpecEngine:
                     embedding,
                     embedding_model,
                     json.dumps(metadata) if metadata else None,
-                ]
+                ],
             )
 
             return {"embedding_id": emb_id, "content_hash": content_hash}
@@ -1413,10 +1475,18 @@ class SpecEngine:
                 """
                 result = self.con.execute(query, [query_embedding, k]).fetchall()
 
-            columns = ["id", "spec_id", "org_id", "content_type", "content", "metadata", "similarity"]
+            columns = [
+                "id",
+                "spec_id",
+                "org_id",
+                "content_type",
+                "content",
+                "metadata",
+                "similarity",
+            ]
             return [dict(zip(columns, row)) for row in result]
 
-        except Exception as e:
+        except Exception:
             return []
 
     def hybrid_search(
@@ -1475,11 +1545,20 @@ class SpecEngine:
             """
             result = self.con.execute(query, [text_query, query_embedding, k]).fetchall()
 
-            columns = ["id", "spec_id", "org_id", "content_type", "content",
-                       "metadata", "keyword_score", "vector_score", "hybrid_score"]
+            columns = [
+                "id",
+                "spec_id",
+                "org_id",
+                "content_type",
+                "content",
+                "metadata",
+                "keyword_score",
+                "vector_score",
+                "hybrid_score",
+            ]
             return [dict(zip(columns, row)) for row in result]
 
-        except Exception as e:
+        except Exception:
             return []
 
     def store_conversation_memory(
@@ -1515,7 +1594,8 @@ class SpecEngine:
             self.con.execute(
                 """
                 INSERT INTO memory_conversations
-                    (id, session_id, agent_spec_id, role, content, embedding, importance, tool_calls)
+                    (id, session_id, agent_spec_id, role, content,
+                     embedding, importance, tool_calls)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 [
@@ -1527,7 +1607,7 @@ class SpecEngine:
                     embedding,
                     importance,
                     json.dumps(tool_calls) if tool_calls else None,
-                ]
+                ],
             )
 
             return {"memory_id": mem_id}
@@ -1569,7 +1649,7 @@ class SpecEngine:
                 messages.append(msg)
             return messages
 
-        except Exception as e:
+        except Exception:
             return []
 
     def store_org_knowledge(
@@ -1599,7 +1679,10 @@ class SpecEngine:
                 ).fetchone()[0]
                 self.con.execute(
                     """
-                    INSERT INTO knowledge_dev (id, repo, file_path, language, ast_type, symbol_name, content, embedding, doc_string, version_ref)
+                    INSERT INTO knowledge_dev
+                        (id, repo, file_path, language, ast_type,
+                         symbol_name, content, embedding,
+                         doc_string, version_ref)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
@@ -1613,7 +1696,7 @@ class SpecEngine:
                         embedding,
                         kwargs.get("doc_string"),
                         kwargs.get("version_ref"),
-                    ]
+                    ],
                 )
             elif org == "research":
                 table = "knowledge_research"
@@ -1622,7 +1705,10 @@ class SpecEngine:
                 ).fetchone()[0]
                 self.con.execute(
                     """
-                    INSERT INTO knowledge_research (id, query, source_url, source_title, content, embedding, relevance_score, search_engine)
+                    INSERT INTO knowledge_research
+                        (id, query, source_url, source_title,
+                         content, embedding, relevance_score,
+                         search_engine)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
@@ -1634,7 +1720,7 @@ class SpecEngine:
                         embedding,
                         kwargs.get("relevance_score"),
                         kwargs.get("search_engine", "searxng"),
-                    ]
+                    ],
                 )
             elif org == "studio":
                 table = "knowledge_studio"
@@ -1643,7 +1729,10 @@ class SpecEngine:
                 ).fetchone()[0]
                 self.con.execute(
                     """
-                    INSERT INTO knowledge_studio (id, project, decision_type, title, description, content, embedding, rationale, performance)
+                    INSERT INTO knowledge_studio
+                        (id, project, decision_type, title,
+                         description, content, embedding,
+                         rationale, performance)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
@@ -1656,7 +1745,7 @@ class SpecEngine:
                         embedding,
                         kwargs.get("rationale"),
                         kwargs.get("performance"),
-                    ]
+                    ],
                 )
             elif org == "ops":
                 table = "knowledge_ops"
@@ -1665,7 +1754,9 @@ class SpecEngine:
                 ).fetchone()[0]
                 self.con.execute(
                     """
-                    INSERT INTO knowledge_ops (id, pipeline, run_id, status, log_level, content, embedding, metrics, duration_ms)
+                    INSERT INTO knowledge_ops
+                        (id, pipeline, run_id, status, log_level,
+                         content, embedding, metrics, duration_ms)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
@@ -1678,7 +1769,7 @@ class SpecEngine:
                         embedding,
                         json.dumps(kwargs.get("metrics")) if kwargs.get("metrics") else None,
                         kwargs.get("duration_ms"),
-                    ]
+                    ],
                 )
             else:
                 return {"error": f"Unknown org: {org}"}
@@ -1708,13 +1799,16 @@ class SpecEngine:
                 GROUP BY content_type
             """).fetchall()
             stats["embeddings"] = {
-                row[0]: {"total": row[1], "with_embeddings": row[2]}
-                for row in emb_result
+                row[0]: {"total": row[1], "with_embeddings": row[2]} for row in emb_result
             }
 
             # Org knowledge stats
-            for org, table in [("dev", "knowledge_dev"), ("research", "knowledge_research"),
-                               ("studio", "knowledge_studio"), ("ops", "knowledge_ops")]:
+            for org, table in [
+                ("dev", "knowledge_dev"),
+                ("research", "knowledge_research"),
+                ("studio", "knowledge_studio"),
+                ("ops", "knowledge_ops"),
+            ]:
                 try:
                     result = self.con.execute(f"""
                         SELECT COUNT(*), COUNT(embedding)
