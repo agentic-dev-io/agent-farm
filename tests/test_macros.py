@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test script for DuckDB macros"""
 
+import os
 import sys
 
 import duckdb
@@ -71,11 +72,12 @@ def test_macros():
             except Exception as e:
                 print(f"  [SKIP] {ext}: {e}")
 
-    # Register getenv UDF (needed by some macros)
-    import os
-
-    con.create_function("getenv", lambda name: os.getenv(name) if name else None, [str], str,
-                        null_handling="special")
+    # Register UDFs (getenv etc. – needed by macros); requires numpy for DuckDB create_function
+    try:
+        from agent_farm.udfs import register_udfs
+        register_udfs(con)
+    except Exception as e:
+        pytest.skip(f"UDFs not available: {e}")
 
     # Create agent infrastructure tables (macros reference these)
     try:
