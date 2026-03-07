@@ -64,63 +64,20 @@ CREATE OR REPLACE MACRO ollama_embed(model_name, text_input) AS (
     )::FLOAT[]
 );
 
-CREATE OR REPLACE MACRO deepseek(prompt) AS ollama_chat('deepseek-v3.1:671b-cloud', prompt);
-CREATE OR REPLACE MACRO kimi(prompt) AS ollama_chat('kimi-k2:1t-cloud', prompt);
+CREATE OR REPLACE MACRO deepseek(prompt) AS ollama_chat('deepseek-v3.2:cloud', prompt);
+CREATE OR REPLACE MACRO kimi(prompt) AS ollama_chat('kimi-k2.5:cloud', prompt);
 CREATE OR REPLACE MACRO kimi_think(prompt) AS ollama_chat('kimi-k2-thinking:cloud', prompt);
 CREATE OR REPLACE MACRO gemini(prompt) AS ollama_chat('gemini-3-pro-preview:latest', prompt);
-CREATE OR REPLACE MACRO qwen3_coder(prompt) AS ollama_chat('qwen3-coder:480b-cloud', prompt);
+CREATE OR REPLACE MACRO gemini_flash(prompt) AS ollama_chat('gemini-3-flash-preview:latest', prompt);
+CREATE OR REPLACE MACRO qwen3_coder(prompt) AS ollama_chat('qwen3-coder-next:cloud', prompt);
 CREATE OR REPLACE MACRO qwen3_vl(prompt) AS ollama_chat('qwen3-vl:235b-cloud', prompt);
-CREATE OR REPLACE MACRO glm(prompt) AS ollama_chat('glm-4.6:cloud', prompt);
-CREATE OR REPLACE MACRO minimax(prompt) AS ollama_chat('minimax-m2:cloud', prompt);
+CREATE OR REPLACE MACRO qwen(prompt) AS ollama_chat('qwen3.5:cloud', prompt);
+CREATE OR REPLACE MACRO glm(prompt) AS ollama_chat('glm-5:cloud', prompt);
+CREATE OR REPLACE MACRO minimax(prompt) AS ollama_chat('minimax-m2.5:cloud', prompt);
 CREATE OR REPLACE MACRO gpt_oss(prompt) AS ollama_chat('gpt-oss:120b-cloud', prompt);
 CREATE OR REPLACE MACRO gpt_oss_small(prompt) AS ollama_chat('gpt-oss:20b-cloud', prompt);
-
-CREATE OR REPLACE MACRO deepseek_tools(prompt, tools_json) AS (
-    SELECT ollama_chat_with_tools(
-        'deepseek-v3.1:671b-cloud',
-        json_array(json_object('role', 'user', 'content', prompt)),
-        tools_json
-    )
-);
-
-CREATE OR REPLACE MACRO kimi_tools(prompt, tools_json) AS (
-    SELECT ollama_chat_with_tools(
-        'kimi-k2:1t-cloud',
-        json_array(json_object('role', 'user', 'content', prompt)),
-        tools_json
-    )
-);
-
-CREATE OR REPLACE MACRO gemini_tools(prompt, tools_json) AS (
-    SELECT ollama_chat_with_tools(
-        'gemini-3-pro-preview:latest',
-        json_array(json_object('role', 'user', 'content', prompt)),
-        tools_json
-    )
-);
-
-CREATE OR REPLACE MACRO qwen3_coder_tools(prompt, tools_json) AS (
-    SELECT ollama_chat_with_tools(
-        'qwen3-coder:480b-cloud',
-        json_array(json_object('role', 'user', 'content', prompt)),
-        tools_json
-    )
-);
-
-CREATE OR REPLACE MACRO mcp_to_ollama_tool(tool_name, description, input_schema_json) AS (
-    SELECT json_object(
-        'type', 'function',
-        'function', json_object(
-            'name', tool_name,
-            'description', description,
-            'parameters', json(input_schema_json)
-        )
-    )
-);
-
-CREATE OR REPLACE MACRO build_tools_array(tools_list) AS (
-    SELECT json_group_array(json(tool)) FROM (SELECT unnest(tools_list) as tool)
-);
+CREATE OR REPLACE MACRO gpt_codex(prompt) AS ollama_chat('gpt-5.3-codex:latest', prompt);
+CREATE OR REPLACE MACRO devstral(prompt) AS ollama_chat('devstral-2:123b-cloud', prompt);
 
 CREATE OR REPLACE MACRO agent_call(model_name, system_prompt, user_prompt, tools_json) AS (
     SELECT ollama_chat_with_tools(

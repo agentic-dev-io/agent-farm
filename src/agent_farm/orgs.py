@@ -18,8 +18,8 @@ ORG_CONFIGS = {
         "id": "dev-org",
         "name": "DevOrg",
         "description": "Development, code reviews, pipeline configurations",
-        "model_primary": "glm-4.7:cloud",
-        "model_secondary": "qwen3-coder:cloud",
+        "model_primary": "glm-5:cloud",
+        "model_secondary": "qwen3-coder-next:cloud",
         "security_profile": SecurityProfile.STANDARD,
         "workspaces": [
             {"path": "/projects/dev", "mode": WorkspaceMode.WRITER, "name": "Development"},
@@ -54,7 +54,7 @@ ORG_CONFIGS = {
         "name": "OpsOrg",
         "description": "CI/CD pipelines, deployments, render jobs",
         "model_primary": "kimi-k2.5:cloud",
-        "model_secondary": "minimax-m2.1:cloud",
+        "model_secondary": "minimax-m2.5:cloud",
         "security_profile": SecurityProfile.POWER,
         "workspaces": [
             {"path": "/projects/ops", "mode": WorkspaceMode.WRITER, "name": "Operations"},
@@ -102,7 +102,7 @@ ORG_CONFIGS = {
         "name": "ResearchOrg",
         "description": "External research, summaries, research notes",
         "model_primary": "gpt-oss:20b-cloud",
-        "model_secondary": "minimax-m2.1:cloud",
+        "model_secondary": "minimax-m2.5:cloud",
         "security_profile": SecurityProfile.CONSERVATIVE,
         "workspaces": [
             {"path": "/data/research", "mode": WorkspaceMode.WRITER, "name": "Research Notes"},
@@ -180,7 +180,7 @@ ORG_CONFIGS = {
         "name": "OrchestratorOrg",
         "description": "Central task distribution to orgs",
         "model_primary": "kimi-k2.5:cloud",
-        "model_secondary": "glm-4.7:cloud",
+        "model_secondary": "glm-5:cloud",
         "security_profile": SecurityProfile.CONSERVATIVE,
         "workspaces": [],  # No direct workspace access
         "tools": [

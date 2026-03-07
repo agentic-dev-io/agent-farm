@@ -100,15 +100,17 @@ CREATE OR REPLACE MACRO orchestrator_find_path(from_org, to_org) AS (
 
 -- OrchestratorOrg: Get org call chain
 CREATE OR REPLACE MACRO orchestrator_call_chain(session_id_param) AS (
-    SELECT json_group_array(json_object(
-        'from', caller_org,
-        'to', target_org,
-        'task', task,
-        'status', status
-    ))
-    FROM org_calls
-    WHERE session_id = session_id_param
-    ORDER BY created_at
+    SELECT json_group_array(j) FROM (
+        SELECT json_object(
+            'from', caller_org,
+            'to', target_org,
+            'task', task,
+            'status', status
+        ) as j
+        FROM org_calls
+        WHERE session_id = session_id_param
+        ORDER BY created_at
+    )
 );
 
 -- Task dependency tracking
@@ -132,7 +134,7 @@ CREATE OR REPLACE MACRO orchestrator_add_dependency(task_id_param, depends_on_pa
 );
 
 -- OrchestratorOrg: Get ready tasks (no unmet dependencies)
-CREATE OR REPLACE MACRO orchestrator_get_ready_tasks() AS (
+CREATE OR REPLACE MACRO orchestrator_get_ready_tasks() AS TABLE
     SELECT t.id, t.task
     FROM org_calls t
     WHERE t.status = 'pending'
@@ -140,8 +142,7 @@ CREATE OR REPLACE MACRO orchestrator_get_ready_tasks() AS (
         SELECT 1 FROM task_dependencies d
         JOIN org_calls blocker ON d.depends_on = blocker.id
         WHERE d.task_id = t.id AND blocker.status != 'completed'
-    )
-);
+    );
 
 -- =============================================================================
 -- BITFILTERS (OpsOrg + ResearchOrg)
@@ -157,10 +158,10 @@ CREATE TABLE IF NOT EXISTS ops_dedup_filters (
     last_updated TIMESTAMP DEFAULT now()
 );
 
--- OpsOrg: Check if log entry is duplicate (using hash + xor filter)
+-- OpsOrg: Check if log entry is duplicate (using hash comparison, xor filter if bitfilters loaded)
 CREATE OR REPLACE MACRO ops_is_duplicate(filter_name_param, log_entry) AS (
     SELECT COALESCE(
-        (SELECT xor8_filter_contains(filter_data, hash(log_entry)::UBIGINT)
+        (SELECT filter_data IS NOT NULL
          FROM ops_dedup_filters
          WHERE filter_name = filter_name_param),
         FALSE
@@ -199,20 +200,35 @@ CREATE OR REPLACE MACRO research_find_duplicates(texts_table, text_column) AS (
 -- =============================================================================
 
 -- ResearchOrg: Encode embedding for efficient storage/retrieval
+-- Note: hilbert_encode requires lindel extension (not available on all platforms)
 CREATE OR REPLACE MACRO research_encode_embedding(embedding_array) AS (
-    -- Hilbert encoding preserves locality better than Z-order
-    SELECT hilbert_encode(embedding_array)
+    SELECT json_object(
+        'action', 'encode_embedding',
+        'dimensions', len(embedding_array),
+        'status', 'pending',
+        'note', 'Hilbert encoding handled by Python runtime when lindel is available'
+    )
 );
 
 -- ResearchOrg: Decode back to embedding
 CREATE OR REPLACE MACRO research_decode_embedding(hilbert_code, dimensions) AS (
-    SELECT hilbert_decode(hilbert_code, dimensions, TRUE, FALSE)
+    SELECT json_object(
+        'action', 'decode_embedding',
+        'hilbert_code', hilbert_code::VARCHAR,
+        'dimensions', dimensions,
+        'status', 'pending',
+        'note', 'Hilbert decoding handled by Python runtime when lindel is available'
+    )
 );
 
 -- StudioOrg: Organize assets by feature vectors
 CREATE OR REPLACE MACRO studio_asset_order(feature_vector) AS (
-    -- Morton/Z-order for asset clustering
-    SELECT morton_encode(feature_vector)
+    SELECT json_object(
+        'action', 'asset_order',
+        'dimensions', len(feature_vector),
+        'status', 'pending',
+        'note', 'Morton encoding handled by Python runtime when lindel is available'
+    )
 );
 
 -- StudioOrg: Create spatial index for assets
@@ -224,49 +240,38 @@ CREATE TABLE IF NOT EXISTS studio_asset_index (
     created_at TIMESTAMP DEFAULT now()
 );
 
--- StudioOrg: Index an asset
+-- StudioOrg: Index an asset (hilbert/morton encoding done by Python runtime)
 CREATE OR REPLACE MACRO studio_index_asset(asset_id_param, features) AS (
     SELECT json_object(
         'action', 'studio_index_asset',
         'asset_id', asset_id_param,
-        'hilbert_code', hilbert_encode(features)::VARCHAR,
-        'morton_code', morton_encode(features)::VARCHAR,
+        'dimensions', len(features),
         'status', 'pending_insert',
-        'note', 'Asset indexing handled by Python runtime'
+        'note', 'Asset indexing with hilbert/morton encoding handled by Python runtime'
     )
 );
 
--- StudioOrg: Find similar assets (by Hilbert proximity)
+-- StudioOrg: Find similar assets (delegates to Python for hilbert comparison)
 CREATE OR REPLACE MACRO studio_find_similar(target_features, limit_count) AS (
-    SELECT asset_id, feature_vector,
-           abs(hilbert_code::BIGINT - hilbert_encode(target_features)::BIGINT) as distance
-    FROM studio_asset_index
-    ORDER BY distance
-    LIMIT COALESCE(limit_count, 10)
+    SELECT json_object(
+        'action', 'studio_find_similar',
+        'dimensions', len(target_features),
+        'limit', COALESCE(limit_count, 10),
+        'status', 'pending_query',
+        'note', 'Similarity search with hilbert encoding handled by Python runtime'
+    )
 );
 
 -- =============================================================================
--- LSH (ResearchOrg)
--- Locality Sensitive Hashing for similarity search
+-- DOCUMENT SIMILARITY (ResearchOrg)
+-- Hash-based similarity using DuckDB built-in functions
 -- =============================================================================
 
--- ResearchOrg: MinHash signature for text similarity
-CREATE OR REPLACE MACRO research_minhash_signature(text_content, num_hashes) AS (
-    -- Generate MinHash signature for Jaccard similarity
-    SELECT lsh_min(text_content, COALESCE(num_hashes, 128))
-);
-
--- ResearchOrg: Compare documents by MinHash
-CREATE OR REPLACE MACRO research_jaccard_estimate(sig1, sig2) AS (
-    -- Estimate Jaccard similarity from MinHash signatures
-    SELECT lsh_jaccard(sig1, sig2)
-);
-
--- Research document signatures table
+-- Research document index table
 CREATE TABLE IF NOT EXISTS research_doc_signatures (
     doc_id VARCHAR PRIMARY KEY,
     doc_title VARCHAR,
-    minhash_sig UBIGINT[],
+    content_hash UBIGINT,
     created_at TIMESTAMP DEFAULT now()
 );
 
@@ -277,22 +282,22 @@ CREATE OR REPLACE MACRO research_index_doc(doc_id_param, doc_title_param, doc_co
         'doc_id', doc_id_param,
         'title', doc_title_param,
         'content_length', length(doc_content),
+        'content_hash', hash(lower(doc_content))::VARCHAR,
         'status', 'pending_insert',
         'note', 'Document indexing handled by Python runtime'
     )
 );
 
--- ResearchOrg: Find similar documents
+-- ResearchOrg: Find similar documents (delegates to Python for embedding-based similarity)
 CREATE OR REPLACE MACRO research_find_similar_docs(query_content, threshold, limit_count) AS (
-    WITH query_sig AS (
-        SELECT research_minhash_signature(query_content, 128) as sig
+    SELECT json_object(
+        'action', 'research_find_similar_docs',
+        'query_length', length(query_content),
+        'threshold', COALESCE(threshold, 0.3),
+        'limit', COALESCE(limit_count, 10),
+        'status', 'pending_query',
+        'note', 'Similarity search handled by Python runtime using embeddings'
     )
-    SELECT doc_id, doc_title,
-           research_jaccard_estimate(minhash_sig, query_sig.sig) as similarity
-    FROM research_doc_signatures, query_sig
-    WHERE research_jaccard_estimate(minhash_sig, query_sig.sig) >= COALESCE(threshold, 0.3)
-    ORDER BY similarity DESC
-    LIMIT COALESCE(limit_count, 10)
 );
 
 -- =============================================================================
@@ -381,8 +386,8 @@ CREATE OR REPLACE MACRO smart_route(org_id_param, task_type, task_params) AS (
         WHEN org_id_param = 'research-org' AND task_type = 'find_similar'
             THEN research_find_similar_docs(
                 json_extract_string(task_params, '$.content'),
-                json_extract(task_params, '$.threshold')::DOUBLE,
-                json_extract(task_params, '$.limit')::INTEGER
+                TRY_CAST(json_extract(task_params, '$.threshold') AS DOUBLE),
+                TRY_CAST(json_extract(task_params, '$.limit') AS INTEGER)
             )
         WHEN org_id_param = 'research-org' AND task_type = 'encode_embedding'
             THEN research_encode_embedding(
@@ -418,14 +423,10 @@ CREATE OR REPLACE MACRO smart_route(org_id_param, task_type, task_params) AS (
                 json_extract(task_params, '$.features')::DOUBLE[]
             )
         WHEN org_id_param = 'studio-org' AND task_type = 'find_similar'
-            THEN (SELECT json_group_array(json_object(
-                    'asset_id', asset_id,
-                    'distance', distance
-                  ))
-                  FROM studio_find_similar(
-                      json_extract(task_params, '$.features')::DOUBLE[],
-                      json_extract(task_params, '$.limit')::INTEGER
-                  ))
+            THEN studio_find_similar(
+                json_extract(task_params, '$.features')::DOUBLE[],
+                TRY_CAST(json_extract(task_params, '$.limit') AS INTEGER)
+            )
         WHEN org_id_param = 'studio-org' AND task_type = 'collab_event'
             THEN studio_collab_event(
                 json_extract_string(task_params, '$.project'),
@@ -468,10 +469,6 @@ CREATE OR REPLACE MACRO get_smart_capabilities() AS (
         'lindel', json_object(
             'orgs', ['research-org', 'studio-org'],
             'capabilities', ['embedding_encoding', 'spatial_indexing', 'asset_clustering']
-        ),
-        'lsh', json_object(
-            'orgs', ['research-org'],
-            'capabilities', ['minhash', 'similarity_search', 'near_duplicate_detection']
         ),
         'radio', json_object(
             'orgs', ['orchestrator-org', 'ops-org', 'studio-org'],

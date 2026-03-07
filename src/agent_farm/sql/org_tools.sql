@@ -18,7 +18,8 @@ CREATE OR REPLACE MACRO searxng_search(query, categories) AS (
                 THEN '&categories=' || url_encode(categories)
                 ELSE ''
             END,
-            headers := MAP {'Accept': 'application/json'}
+            MAP {'Accept': 'application/json'},
+            MAP {}
         ).body::JSON
     )
 );
@@ -67,7 +68,8 @@ CREATE OR REPLACE MACRO ci_status(pipeline_id) AS (
     SELECT TRY(
         http_get(
             ci_endpoint() || '/pipelines/' || url_encode(pipeline_id),
-            headers := MAP {'Authorization': 'Bearer ' || ci_api_key()}
+            MAP {'Authorization': 'Bearer ' || ci_api_key()},
+            MAP {}
         ).body::JSON
     )
 );
@@ -160,15 +162,17 @@ CREATE OR REPLACE MACRO notes_board_create(project_name, note_title, note_conten
 
 -- List notes for project
 CREATE OR REPLACE MACRO notes_board_list(project_name) AS (
-    SELECT json_group_array(json_object(
-        'id', id,
-        'title', title,
-        'status', status,
-        'created_at', created_at::VARCHAR
-    ))
-    FROM notes_board
-    WHERE project = project_name
-    ORDER BY created_at DESC
+    SELECT json_group_array(j) FROM (
+        SELECT json_object(
+            'id', id,
+            'title', title,
+            'status', status,
+            'created_at', created_at::VARCHAR
+        ) as j
+        FROM notes_board
+        WHERE project = project_name
+        ORDER BY created_at DESC
+    )
 );
 
 -- Update note
@@ -260,23 +264,23 @@ CREATE OR REPLACE MACRO git_patch_check(patch_content) AS (
 -- =============================================================================
 
 -- Execute tool for specific org with policy checks
-CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_name, tool_params) AS (
+CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_name_param, tool_params) AS (
     WITH policy_check AS (
-        SELECT org_can_execute(org_id_param, tool_name, tool_params) as policy
+        SELECT org_can_execute(org_id_param, tool_name_param, tool_params) as policy
     )
     SELECT CASE
         -- Policy denied
         WHEN NOT json_extract(policy_check.policy, '$.allowed')::BOOLEAN
             THEN json_object(
                 'error', json_extract_string(policy_check.policy, '$.reason'),
-                'tool', tool_name,
+                'tool', tool_name_param,
                 'org', org_id_param
             )
         -- Requires approval
         WHEN json_extract(policy_check.policy, '$.requires_approval')::BOOLEAN
             THEN json_object(
                 'status', 'approval_required',
-                'tool', tool_name,
+                'tool', tool_name_param,
                 'params', tool_params,
                 'org', org_id_param
             )
@@ -286,94 +290,86 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
         -- =========================================
 
         -- JSONata Tools
-        WHEN tool_name = 'json_transform'
+        WHEN tool_name_param = 'json_transform'
             THEN json_transform(
                 tool_params,
                 json_extract_string(tool_params, '$.expression')
             )
-        WHEN tool_name = 'research_parse_api'
+        WHEN tool_name_param = 'research_parse_api'
             THEN research_parse_api(tool_params)
-        WHEN tool_name = 'dev_validate_config'
+        WHEN tool_name_param = 'dev_validate_config'
             THEN dev_validate_config(
                 tool_params,
                 json_extract_string(tool_params, '$.required_fields')
             )
 
         -- DuckPGQ Tools (OrchestratorOrg)
-        WHEN tool_name = 'orchestrator_call_chain'
+        WHEN tool_name_param = 'orchestrator_call_chain'
             THEN orchestrator_call_chain(session_id_param)
-        WHEN tool_name = 'orchestrator_add_dependency'
+        WHEN tool_name_param = 'orchestrator_add_dependency'
             THEN orchestrator_add_dependency(
                 json_extract_string(tool_params, '$.task_id'),
                 json_extract_string(tool_params, '$.depends_on'),
                 json_extract_string(tool_params, '$.type')
             )
-        WHEN tool_name = 'orchestrator_get_ready_tasks'
+        WHEN tool_name_param = 'orchestrator_get_ready_tasks'
             THEN (SELECT json_group_array(json_object('id', id, 'task', task))
                   FROM orchestrator_get_ready_tasks())
 
         -- Bitfilters Tools (OpsOrg)
-        WHEN tool_name = 'ops_is_duplicate'
+        WHEN tool_name_param = 'ops_is_duplicate'
             THEN ops_is_duplicate(
                 json_extract_string(tool_params, '$.filter'),
                 json_extract_string(tool_params, '$.entry')
             )::VARCHAR
 
         -- Lindel Tools (ResearchOrg + StudioOrg)
-        WHEN tool_name = 'research_encode_embedding'
+        WHEN tool_name_param = 'research_encode_embedding'
             THEN research_encode_embedding(
                 json_extract(tool_params, '$.embedding')::DOUBLE[]
             )::VARCHAR
-        WHEN tool_name = 'studio_index_asset'
+        WHEN tool_name_param = 'studio_index_asset'
             THEN studio_index_asset(
                 json_extract_string(tool_params, '$.asset_id'),
                 json_extract(tool_params, '$.features')::DOUBLE[]
             )
-        WHEN tool_name = 'studio_find_similar'
-            THEN (SELECT json_group_array(json_object(
-                    'asset_id', asset_id,
-                    'distance', distance
-                  ))
-                  FROM studio_find_similar(
-                      json_extract(tool_params, '$.features')::DOUBLE[],
-                      json_extract(tool_params, '$.limit')::INTEGER
-                  ))
+        WHEN tool_name_param = 'studio_find_similar'
+            THEN studio_find_similar(
+                json_extract(tool_params, '$.features')::DOUBLE[],
+                TRY_CAST(json_extract(tool_params, '$.limit') AS INTEGER)
+            )
 
-        -- LSH Tools (ResearchOrg)
-        WHEN tool_name = 'research_index_doc'
+        -- Document Similarity Tools (ResearchOrg)
+        WHEN tool_name_param = 'research_index_doc'
             THEN research_index_doc(
                 json_extract_string(tool_params, '$.doc_id'),
                 json_extract_string(tool_params, '$.title'),
                 json_extract_string(tool_params, '$.content')
             )
-        WHEN tool_name = 'research_find_similar_docs'
-            THEN (SELECT json_group_array(json_object(
-                    'doc_id', doc_id,
-                    'title', doc_title,
-                    'similarity', similarity
-                  ))
-                  FROM research_find_similar_docs(
-                      json_extract_string(tool_params, '$.content'),
-                      json_extract(tool_params, '$.threshold')::DOUBLE,
-                      json_extract(tool_params, '$.limit')::INTEGER
-                  ))
+        WHEN tool_name_param = 'research_find_similar_docs'
+            THEN research_find_similar_docs(
+                json_extract_string(tool_params, '$.content'),
+                TRY_CAST(json_extract(tool_params, '$.threshold') AS DOUBLE),
+                TRY_CAST(json_extract(tool_params, '$.limit') AS INTEGER)
+            )
 
         -- Radio Tools (Real-time)
-        WHEN tool_name = 'orchestrator_broadcast'
+        WHEN tool_name_param = 'orchestrator_broadcast'
             THEN orchestrator_broadcast(
                 json_extract_string(tool_params, '$.channel'),
                 tool_params
             )
-        WHEN tool_name = 'orchestrator_listen'
+        WHEN tool_name_param = 'orchestrator_listen'
             THEN orchestrator_listen(
+                json_extract_string(tool_params, '$.channel'),
                 json_extract(tool_params, '$.timeout_ms')::INTEGER
             )
-        WHEN tool_name = 'ops_publish_status'
+        WHEN tool_name_param = 'ops_publish_status'
             THEN ops_publish_status(
                 json_extract_string(tool_params, '$.channel'),
                 tool_params
             )
-        WHEN tool_name = 'studio_collab_event'
+        WHEN tool_name_param = 'studio_collab_event'
             THEN studio_collab_event(
                 json_extract_string(tool_params, '$.project'),
                 json_extract_string(tool_params, '$.event_type'),
@@ -381,7 +377,7 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
             )
 
         -- Smart Router (auto-detect best extension)
-        WHEN tool_name = 'smart_route'
+        WHEN tool_name_param = 'smart_route'
             THEN smart_route(
                 org_id_param,
                 json_extract_string(tool_params, '$.task_type'),
@@ -393,62 +389,62 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
         -- =========================================
 
         -- SearXNG
-        WHEN tool_name = 'searxng_search'
+        WHEN tool_name_param = 'searxng_search'
             THEN searxng_search(
                 json_extract_string(tool_params, '$.query'),
                 json_extract_string(tool_params, '$.categories')
             )
         -- CI/CD
-        WHEN tool_name = 'ci_trigger'
+        WHEN tool_name_param = 'ci_trigger'
             THEN ci_trigger(
                 json_extract_string(tool_params, '$.pipeline'),
                 json_extract_string(tool_params, '$.branch')
             )
-        WHEN tool_name = 'deploy_service'
+        WHEN tool_name_param = 'deploy_service'
             THEN deploy_service(
                 json_extract_string(tool_params, '$.service'),
                 json_extract_string(tool_params, '$.environment')
             )
-        WHEN tool_name = 'rollback_service'
+        WHEN tool_name_param = 'rollback_service'
             THEN rollback_service(
                 json_extract_string(tool_params, '$.service'),
                 json_extract_string(tool_params, '$.version')
             )
         -- Render
-        WHEN tool_name = 'render_job_submit'
+        WHEN tool_name_param = 'render_job_submit'
             THEN render_job_submit(json_extract_string(tool_params, '$.job_config'))
-        WHEN tool_name = 'render_job_status'
+        WHEN tool_name_param = 'render_job_status'
             THEN render_job_status(json_extract_string(tool_params, '$.job_id'))
         -- Notes Board
-        WHEN tool_name = 'notes_board_create'
+        WHEN tool_name_param = 'notes_board_create'
             THEN notes_board_create(
                 json_extract_string(tool_params, '$.project'),
                 json_extract_string(tool_params, '$.title'),
                 json_extract_string(tool_params, '$.content')
             )
-        WHEN tool_name = 'notes_board_list'
+        WHEN tool_name_param = 'notes_board_list'
             THEN notes_board_list(json_extract_string(tool_params, '$.project'))
-        WHEN tool_name = 'notes_board_update'
+        WHEN tool_name_param = 'notes_board_update'
             THEN notes_board_update(
                 json_extract_string(tool_params, '$.note_id'),
                 json_extract_string(tool_params, '$.content')
             )
         -- Research Notes
-        WHEN tool_name = 'fs_write_note'
+        WHEN tool_name_param = 'fs_write_note'
             THEN fs_write_note(
                 json_extract_string(tool_params, '$.title'),
                 json_extract_string(tool_params, '$.content')
             )
-        WHEN tool_name = 'fs_list_notes'
+        WHEN tool_name_param = 'fs_list_notes'
             THEN fs_list_notes()
         -- Test
-        WHEN tool_name = 'test_run'
+        WHEN tool_name_param = 'test_run'
             THEN test_run(json_extract_string(tool_params, '$.test_path'))
         -- Git
-        WHEN tool_name = 'git_patch'
+        WHEN tool_name_param = 'git_patch'
             THEN git_patch(json_extract_string(tool_params, '$.commit_range'))
         -- Fallback to standard tools
-        ELSE execute_tool_safe(org_id_param, session_id_param, tool_name, tool_params)
+        ELSE execute_tool_safe(org_id_param, session_id_param, tool_name_param, tool_params)
     END
     FROM policy_check
 );

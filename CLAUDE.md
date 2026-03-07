@@ -7,13 +7,13 @@ This file provides context and instructions for AI agents (Claude, Copilot, etc.
 **Agent Farm** is a DuckDB-powered MCP server with a central **Spec Engine** that manages specifications for LLM agents. It provides:
 
 - Unified specification storage (agents, skills, templates, schemas, workflows, orgs, APIs, protocols, UI, MCP servers)
-- 175+ SQL macros (LLM calls, web search, shell, Python, file ops, git, RAG, agent harness)
+- 280+ SQL macros (LLM calls, web search, shell, Python, file ops, git, RAG, agent harness)
 - Multi-org agent swarm (5 orgs with security policies, tool permissions, denial rules)
-- MCP Apps system (11+ MiniJinja UI templates)
+- MCP Apps system (24 MiniJinja UI templates)
 - Agent harness with Ollama + Anthropic backends
 - Meta-learning (feedback, adaptations, confidence tracking, learning insights)
 - Intelligence layer (embeddings, org-specific knowledge bases, hybrid search)
-- Smart extensions (JSONata, DuckPGQ, Bitfilters, Lindel, LSH, Radio)
+- Smart extensions (JSONata, DuckPGQ, Radio nativ; Bitfilters, Lindel hybrid/Python-fallback)
 - Template rendering via MiniJinja
 - JSON Schema validation
 - MCP protocol integration via `duckdb_mcp`
@@ -31,24 +31,24 @@ agent-farm/
 │   ├── orgs.py                 # Organization configurations (5 orgs)
 │   ├── schemas.py              # Data models, enums, SQL table definitions
 │   ├── udfs.py                 # Python UDFs (agent_chat, agent_tools, etc.)
-│   └── sql/                    # Modular SQL macros (175+)
-│       ├── base.sql            # Base utilities (url_encode, timestamps)
-│       ├── ollama.sql          # LLM model macros (31 macros)
-│       ├── tools.sql           # Web search, shell, Python, fetch, file, git (43 macros)
-│       ├── agent.sql           # Security policies, audit, secure ops, injection detection (25 macros)
-│       ├── harness.sql         # Agent harness, Anthropic + Ollama routing (15 macros)
+│   └── sql/                    # Modular SQL macros (280+)
+│       ├── base.sql            # Base utilities (url_encode, timestamps) (4 macros)
+│       ├── ollama.sql          # LLM model macros (28 macros)
+│       ├── tools.sql           # Web search, shell, Python, fetch, file, git (48 macros)
+│       ├── agent.sql           # Security policies, audit, secure ops, injection detection (23 macros)
+│       ├── harness.sql         # Agent harness, Anthropic + Ollama routing (13 macros)
 │       ├── orgs.sql            # Org tables, permissions, orchestrator routing (16 macros)
-│       ├── org_tools.sql       # SearXNG, CI/CD, notes board, render jobs (~30 macros)
-│       ├── ui.sql              # MCP Apps, templates, onboarding, settings (50+ macros)
-│       └── extensions.sql      # JSONata, DuckPGQ, Bitfilters, Lindel, LSH, Radio (25+ macros)
-├── db/                         # Spec Engine SQL files
-│   ├── spec_engine_schema.sql  # Core schema (7 tables, 19 views, 7 sequences)
-│   ├── spec_engine_macros.sql  # 50+ spec query/mutation/template/validation macros
-│   ├── spec_engine_seed.sql    # Seed data (agents, skills, templates, schemas, orgs, workflows)
-│   ├── spec_engine_intelligence.sql  # Intelligence layer (embeddings, org knowledge bases)
-│   ├── spec_engine_rag.sql     # RAG/hybrid search macros
-│   ├── spec_engine_http.sql    # HTTP API views
-│   └── spec_engine_init.sql    # Extension loading
+│       ├── org_tools.sql       # SearXNG, CI/CD, notes board, render jobs (25 macros)
+│       ├── ui.sql              # MCP Apps, 24 templates, onboarding, settings (35 macros)
+│       ├── extensions.sql      # JSONata, DuckPGQ, Radio, Bitfilters, Lindel (33 macros)
+│       └── spec/               # Spec Engine SQL files
+│           ├── schema.sql      # Core schema (7 tables, 19 views, 7 sequences)
+│           ├── macros.sql      # 39 spec query/mutation/template/validation macros
+│           ├── seed.sql        # Seed data (agents, skills, templates, schemas, orgs, workflows)
+│           ├── intelligence.sql # Intelligence layer (embeddings, org knowledge bases)
+│           ├── rag.sql         # RAG/hybrid search macros (16 macros)
+│           ├── http.sql        # HTTP API views
+│           └── init.sql        # Extension loading
 ├── scripts/                    # Utility scripts
 │   ├── install_extensions.py
 │   └── test_extensions.py
@@ -116,9 +116,9 @@ start_http_server(port, api_key)
 stop_http_server()
 ```
 
-### 2. SQL Macros (`src/agent_farm/sql/` + `db/`)
+### 2. SQL Macros (`src/agent_farm/sql/`)
 
-175+ SQL macros organized across 9 modular files:
+280+ SQL macros organized across 9 modular files + spec engine:
 
 - **base.sql**: `get_secret`, `url_encode`, `now_iso`, `now_unix`
 - **ollama.sql**: `ollama_chat`, `deepseek`, `kimi`, `kimi_think`, `gemini`, `qwen3_coder`, `glm`, `minimax`, `gpt_oss`, `embed`, `semantic_score`, `rag_query`, `cosine_sim`, tool-calling variants
@@ -130,7 +130,7 @@ stop_http_server()
 - **ui.sql**: `render_app`, `open_app`, `studio_present_choices`, `dev_open_vibe_coder`, `open_approval_ui`, `open_model_selector`, `smart_execute_tool`
 - **extensions.sql**: `json_transform`, `orchestrator_find_path`, `ops_is_duplicate`, `research_find_similar_docs`, `orchestrator_broadcast`, `smart_route`
 
-Spec Engine macros (`db/spec_engine_macros.sql`):
+Spec Engine macros (`src/agent_farm/sql/spec/macros.sql` + `spec/rag.sql`):
 - `spec_list_by_kind`, `spec_search`, `spec_get`, `spec_get_payload`, `spec_get_doc`
 - `spec_render_template`, `spec_render`, `spec_validate`, `spec_is_valid`
 - `mcp_list_remote`, `mcp_call_remote_tool`
@@ -143,11 +143,11 @@ Spec Engine macros (`db/spec_engine_macros.sql`):
 
 | Org | Primary Model | Secondary Model | Security | Role |
 |-----|--------------|-----------------|----------|------|
-| **DevOrg** | glm-4.7:cloud | qwen3-coder:cloud | standard | Code, reviews, tests |
-| **OpsOrg** | kimi-k2.5:cloud | minimax-m2.1:cloud | power | CI/CD, deploy, render |
-| **ResearchOrg** | gpt-oss:20b-cloud | minimax-m2.1:cloud | conservative | SearXNG search, analysis |
+| **DevOrg** | glm-5:cloud | qwen3-coder-next:cloud | standard | Code, reviews, tests |
+| **OpsOrg** | kimi-k2.5:cloud | minimax-m2.5:cloud | power | CI/CD, deploy, render |
+| **ResearchOrg** | gpt-oss:20b-cloud | minimax-m2.5:cloud | conservative | SearXNG search, analysis |
 | **StudioOrg** | kimi-k2.5:cloud | gemma3:4b-cloud | standard | Specs, docs, DCC briefings |
-| **OrchestratorOrg** | kimi-k2.5:cloud | glm-4.7:cloud | conservative | Task routing, coordination |
+| **OrchestratorOrg** | kimi-k2.5:cloud | glm-5:cloud | conservative | Task routing, coordination |
 
 Each org has: dedicated workspaces, allowed/denied tool lists, approval requirements, smart extension integrations, system prompts.
 
@@ -162,7 +162,8 @@ Each org has: dedicated workspaces, allowed/denied tool lists, approval requirem
 
 Required: `json`, `minijinja`, `json_schema`, `duckdb_mcp`, `httpfs`, `http_client`, `icu`
 
-Optional: `httpserver`, `ducklake`, `vss`, `fts`, `jsonata`, `duckpgq`, `bitfilters`, `lindel`, `htmlstringify`, `lsh`, `shellfs`, `zipfs`, `radio`
+Optional (nativ): `httpserver`, `ducklake`, `vss`, `fts`, `jsonata`, `duckpgq`, `htmlstringify`, `shellfs`, `zipfs`, `radio`
+Optional (hybrid/Python-fallback): `bitfilters`, `lindel`
 
 ### 6. Spec Kinds
 
@@ -195,7 +196,7 @@ uv run pytest tests/ --cov=src/agent_farm
 
 ### Adding New Features
 
-1. **New Spec Kind**: Add to seed data in `db/spec_engine_seed.sql`
+1. **New Spec Kind**: Add to seed data in `src/agent_farm/sql/spec/seed.sql`
 2. **New SQL Macro**: Add to appropriate file in `src/agent_farm/sql/`
 3. **New Spec Engine Method**: Add to `src/agent_farm/spec_engine.py`
 4. **New MCP Tool**: Register in `register_spec_engine_tools()`

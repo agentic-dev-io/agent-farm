@@ -45,13 +45,13 @@ CREATE OR REPLACE MACRO is_blocked_command(agent_id_param, cmd) AS (
     )
 );
 
--- Check if file matches sensitive patterns
+-- Check if file matches sensitive patterns (glob-style: * → %, ? → _)
 CREATE OR REPLACE MACRO is_sensitive_file(agent_id_param, file_path) AS (
     SELECT EXISTS (
         SELECT 1 FROM security_policy
         CROSS JOIN LATERAL unnest(sensitive_patterns) AS t(pattern)
         WHERE agent_id = agent_id_param
-        AND glob(file_path, pattern)
+        AND file_path LIKE replace(replace(pattern, '*', '%'), '?', '_')
     )
 );
 

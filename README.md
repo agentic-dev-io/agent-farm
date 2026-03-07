@@ -12,7 +12,7 @@
 
 [![CI](https://github.com/agentic-dev-io/agent-farm/workflows/CI/badge.svg)](https://github.com/agentic-dev-io/agent-farm/actions/workflows/ci.yml)
 
-**DuckDB Spec-OS for multi-org AI agent swarms.** Central specification management, 175+ SQL macros, interactive agent REPL, MCP Apps, meta-learning, and smart extensions.
+**DuckDB Spec-OS for multi-org AI agent swarms.** Central specification management, 280+ SQL macros, interactive agent REPL, MCP Apps, meta-learning, and smart extensions.
 
 ---
 
@@ -98,7 +98,7 @@ src/agent_farm/
 ├── orgs.py            # 5 organizations with models, tools, security
 ├── schemas.py         # Data models, enums, table definitions
 ├── udfs.py            # Python UDFs (agent_chat, agent_tools, etc.)
-└── sql/               # 175+ SQL macros
+└── sql/               # 280+ SQL macros
     ├── base.sql       # Utilities (url_encode, timestamps)
     ├── ollama.sql     # LLM calls (Ollama, Anthropic, cloud wrappers)
     ├── tools.sql      # Web search, shell, Python, fetch, file, git
@@ -106,8 +106,8 @@ src/agent_farm/
     ├── harness.sql    # Agent harness (model routing, tool execution)
     ├── orgs.sql       # Org permissions, orchestrator routing
     ├── org_tools.sql  # SearXNG, CI/CD, notes, render jobs
-    ├── ui.sql         # MCP Apps (11+ MiniJinja UI templates)
-    └── extensions.sql # JSONata, DuckPGQ, Bitfilters, Lindel, LSH, Radio
+    ├── ui.sql         # MCP Apps (24 MiniJinja UI templates)
+    └── extensions.sql # JSONata, DuckPGQ, Radio, Bitfilters (hybrid), Lindel (hybrid)
 
 db/                    # Spec Engine schema, macros, seed data, intelligence
 tests/                 # pytest test suite
@@ -123,7 +123,7 @@ docs/                  # Documentation
 | Org | Model | Security | Role |
 |-----|-------|----------|------|
 | **OrchestratorOrg** | kimi-k2.5:cloud | conservative | Task routing, coordination |
-| **DevOrg** | glm-4.7:cloud | standard | Code, reviews, tests |
+| **DevOrg** | glm-5:cloud | standard | Code, reviews, tests |
 | **OpsOrg** | kimi-k2.5:cloud | power | CI/CD, deploy, render |
 | **ResearchOrg** | gpt-oss:20b-cloud | conservative | SearXNG search, analysis |
 | **StudioOrg** | kimi-k2.5:cloud | standard | Specs, docs, DCC briefings |
@@ -132,7 +132,7 @@ Each org has dedicated workspaces, allowed/denied tool lists, approval requireme
 
 ---
 
-## SQL Macros (175+)
+## SQL Macros (280+)
 
 ```sql
 -- LLM calls (routed through Ollama)

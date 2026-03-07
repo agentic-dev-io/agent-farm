@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS security_policy (
     shell_enabled BOOLEAN DEFAULT FALSE,
     shell_allowlist VARCHAR[],
     shell_blocklist VARCHAR[] DEFAULT [
-        'rm -rf', 'rm -r /', 'mkfs', 'dd if=', ':(){:|:&};:',
+        'rm -rf', 'rm -r /', 'mkfs', 'dd if=',
         'chmod -R 777', 'curl | sh', 'wget | sh', '> /dev/sd'
     ],
     web_enabled BOOLEAN DEFAULT TRUE,

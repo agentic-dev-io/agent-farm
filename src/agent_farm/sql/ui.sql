@@ -56,6 +56,19 @@ CREATE TABLE IF NOT EXISTS user_profile (
     updated_at TIMESTAMP DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS pending_approvals (
+    id VARCHAR PRIMARY KEY,
+    session_id VARCHAR NOT NULL,
+    tool_name VARCHAR NOT NULL,
+    tool_params JSON,
+    reason VARCHAR,
+    status VARCHAR DEFAULT 'pending',
+    decision VARCHAR,
+    resolved_by VARCHAR,
+    created_at TIMESTAMP DEFAULT now(),
+    resolved_at TIMESTAMP
+);
+
 -- =============================================================================
 -- BASE TEMPLATES (minijinja)
 -- =============================================================================
@@ -791,41 +804,31 @@ ON CONFLICT (id) DO NOTHING;
 
 -- =============================================================================
 -- MINIJINJA RENDER MACROS
+-- Note: minijinja_render requires constant template strings in DuckDB.
+-- Templates from subqueries won't work. These macros return render instructions
+-- as JSON for the Python runtime to execute the actual rendering.
 -- =============================================================================
 
--- Render a template with context
+-- Render a template with context (delegated to Python runtime)
 CREATE OR REPLACE MACRO render_template(template_id_param, context_json) AS (
-    SELECT minijinja_render(
-        (SELECT template FROM mcp_app_templates WHERE id = template_id_param),
-        context_json
+    SELECT json_object(
+        'action', 'render_template',
+        'template_id', template_id_param,
+        'context', context_json,
+        'status', 'pending_render',
+        'note', 'Template rendering handled by Python runtime via minijinja'
     )
 );
 
--- Render app with base template composition
+-- Render app with base template composition (delegated to Python runtime)
 CREATE OR REPLACE MACRO render_app(app_id_param, instance_id_param, input_json) AS (
-    WITH app AS (
-        SELECT * FROM mcp_apps WHERE id = app_id_param
-    ),
-    tpl AS (
-        SELECT * FROM mcp_app_templates WHERE id = (SELECT template_id FROM app)
-    ),
-    base AS (
-        SELECT template FROM mcp_app_templates WHERE id = COALESCE((SELECT base_template FROM tpl), 'base')
-    ),
-    script AS (
-        SELECT template FROM mcp_app_templates WHERE id = (SELECT template_id FROM app) || '-script'
-    ),
-    content_rendered AS (
-        SELECT minijinja_render((SELECT template FROM tpl), input_json) as html
-    )
-    SELECT minijinja_render(
-        (SELECT template FROM base),
-        json_object(
-            'title', (SELECT name FROM app),
-            'instance_id', instance_id_param,
-            'content', (SELECT html FROM content_rendered),
-            'script', (SELECT template FROM script)
-        )
+    SELECT json_object(
+        'action', 'render_app',
+        'app_id', app_id_param,
+        'instance_id', instance_id_param,
+        'input', input_json,
+        'status', 'pending_render',
+        'note', 'App rendering with base template composition handled by Python runtime'
     )
 );
 

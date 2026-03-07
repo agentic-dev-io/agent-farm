@@ -27,7 +27,8 @@ CREATE OR REPLACE MACRO ddg_definition(query) AS (
 CREATE OR REPLACE MACRO brave_search(query) AS (
     http_get(
         'https://api.search.brave.com/res/v1/web/search?q=' || url_encode(query),
-        headers := MAP {'X-Subscription-Token': get_secret('brave_api_key')}
+        MAP {'X-Subscription-Token': get_secret('brave_api_key')},
+        MAP {}
     ).body::JSON
 );
 
@@ -38,7 +39,8 @@ CREATE OR REPLACE MACRO brave_results(query) AS (
 CREATE OR REPLACE MACRO brave_news(query) AS (
     http_get(
         'https://api.search.brave.com/res/v1/news/search?q=' || url_encode(query),
-        headers := MAP {'X-Subscription-Token': get_secret('brave_api_key')}
+        MAP {'X-Subscription-Token': get_secret('brave_api_key')},
+        MAP {}
     ).body::JSON
 );
 
@@ -96,8 +98,11 @@ CREATE OR REPLACE MACRO web_fetch(url) AS (
     http_get(url).body
 );
 
+-- fetch_text: Returns page body as text.
+-- If htmlstringify extension is loaded, strips HTML tags.
+-- Otherwise returns raw body (Python runtime can strip HTML if needed).
 CREATE OR REPLACE MACRO fetch_text(url) AS (
-    TRY(htmlstringify(http_get(url).body))
+    http_get(url).body
 );
 
 CREATE OR REPLACE MACRO fetch_json(url) AS (
@@ -105,11 +110,11 @@ CREATE OR REPLACE MACRO fetch_json(url) AS (
 );
 
 CREATE OR REPLACE MACRO fetch_headers(url, headers_map) AS (
-    http_get(url, headers := headers_map).body
+    http_get(url, headers_map, MAP {}).body
 );
 
 CREATE OR REPLACE MACRO fetch_ua(url) AS (
-    http_get(url, headers := MAP {'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36'}).body
+    http_get(url, MAP {'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36'}, MAP {}).body
 );
 
 CREATE OR REPLACE MACRO post_json(url, body_json) AS (

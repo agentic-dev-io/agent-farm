@@ -382,7 +382,7 @@ def app_list(
 
 @app_cmd.command("render")
 def app_render(
-    app_id: Annotated[int, typer.Argument(help="App ID to render.")],
+    app_id: Annotated[str, typer.Argument(help="App ID to render.")],
     instance_id: Annotated[str, typer.Option(help="Instance ID.")] = "cli",
     input_json: Annotated[str, typer.Option("--input", help="JSON input for the app.")] = "{}",
     db: Annotated[str, typer.Option("--db", help="DuckDB database path.")] = "",
@@ -391,10 +391,13 @@ def app_render(
     db = db or _db_option()
     con, _, _ = init_farm(db, quiet=True)
 
+    app_id_escaped = app_id.replace("'", "''")
     input_escaped = input_json.replace("'", "''")
     instance_escaped = instance_id.replace("'", "''")
     try:
-        result = con.sql(f"SELECT render_app({app_id}, '{instance_escaped}', '{input_escaped}')")
+        result = con.sql(
+            f"SELECT render_app('{app_id_escaped}', '{instance_escaped}', '{input_escaped}')"
+        )
         row = result.fetchone()
         if row:
             out.print(row[0])
