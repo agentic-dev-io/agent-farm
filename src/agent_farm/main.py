@@ -420,30 +420,44 @@ def seed_macros_to_spec_engine(con: duckdb.DuckDBPyConnection) -> int:
     except Exception:
         pass
 
+    # Regex that handles multi-line signatures: captures args across line boundaries
+    macro_header_re = re.compile(
+        r"CREATE OR REPLACE MACRO\s+(\w+)\s*\(([^)]*)\)", re.IGNORECASE | re.DOTALL
+    )
+
     seeded = 0
     for sql_file in sql_dir.rglob("*.sql"):
         category = category_map.get(sql_file.stem, sql_file.stem)
         text = sql_file.read_text(encoding="utf-8", errors="replace")
-
-        # Walk through line-by-line to capture the comment above each macro
         lines = text.splitlines()
-        for i, line in enumerate(lines):
-            m = re.match(r"CREATE OR REPLACE MACRO\s+(\w+)\s*\(([^)]*)\)", line, re.IGNORECASE)
-            if not m:
-                continue
 
+        # Build a char-offset → line-number index for comment lookup
+        offsets: list[int] = []
+        pos = 0
+        for ln in lines:
+            offsets.append(pos)
+            pos += len(ln) + 1  # +1 for newline
+
+        for m in macro_header_re.finditer(text):
             name = m.group(1)
-            args = m.group(2).strip()
+            args = ", ".join(a.strip() for a in m.group(2).split(",") if a.strip())
             signature = f"{name}({args})"
 
             if name in existing:
                 continue
 
+            # Find which line the CREATE MACRO starts on
+            match_pos = m.start()
+            line_idx = next(
+                (i for i in range(len(offsets) - 1, -1, -1) if offsets[i] <= match_pos),
+                0,
+            )
+
             # Collect comment lines immediately above
             description_lines = []
-            j = i - 1
+            j = line_idx - 1
             while j >= 0 and lines[j].strip().startswith("--"):
-                description_lines.insert(0, lines[j].strip().lstrip("- ").strip())
+                description_lines.insert(0, lines[j].strip().lstrip("-").strip())
                 j -= 1
             description = " ".join(description_lines) if description_lines else f"{category} macro"
 
