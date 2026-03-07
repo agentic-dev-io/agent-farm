@@ -1,6 +1,6 @@
 # Spec Engine
 
-The **Spec Engine** is the central "Spec-OS" for all agents in Agent Farm. It uses DuckDB with specialized extensions to manage ALL specifications including agents, skills, workflows, APIs, JSON schemas, templates, and more.
+The **Spec Engine** is the central "Spec-OS" for all agents in Agent Farm. It uses DuckDB with specialized extensions plus Python UDFs to manage specifications, runtime state, approvals, coordination events, embeddings, and remote MCP access from one initialized database.
 
 ## Overview
 
@@ -8,7 +8,9 @@ The Spec Engine provides:
 - **Unified specification storage** - All specs in one place with consistent schema
 - **Template rendering** - MiniJinja templates for prompts and plans
 - **Schema validation** - JSON Schema validation for payloads
-- **MCP integration** - Connect to remote MCP servers from SQL
+- **Runtime workflows** - Persist sessions, approvals, org calls, and radio events
+- **RAG and knowledge storage** - Embeddings, conversation memory, and org knowledge bases
+- **MCP integration** - Connect to remote MCP servers from the Python API and DuckDB runtime
 - **HTTP API** - Optional REST-like interface for non-MCP clients
 
 ## Architecture
@@ -41,14 +43,17 @@ The Spec Engine provides:
 ### Using the MCP Server
 
 ```bash
-# Start the Agent Farm MCP server
+# Start the interactive REPL
 agent-farm
 
+# Start the Agent Farm MCP server
+agent-farm mcp
+
 # Or with persistent database
-DUCKDB_DATABASE=my_specs.db agent-farm
+DUCKDB_DATABASE=my_specs.db agent-farm mcp
 
 # With HTTP API enabled
-SPEC_ENGINE_HTTP_PORT=9999 SPEC_ENGINE_API_KEY=secret agent-farm
+SPEC_ENGINE_HTTP_PORT=9999 SPEC_ENGINE_API_KEY=secret agent-farm mcp
 ```
 
 ### From Python
@@ -92,8 +97,33 @@ The Spec Engine uses these DuckDB extensions:
 | `duckdb_mcp` | MCP client/server integration | Yes |
 | `httpserver` | Expose DuckDB as HTTP OLAP API | No |
 | `json` | JSON manipulation | Yes |
-| `httpfs` | HTTP filesystem access | No |
-| `http_client` | HTTP requests | No |
+| `httpfs` | HTTP filesystem access | Yes |
+| `http_client` | HTTP requests for SQL macros | Yes |
+| `vss` | Vector similarity search | No |
+| `fts` | Full-text search | No |
+| `jsonata` | JSON transformation | No |
+| `bitfilters` | Deduplication helpers | No |
+| `lindel` | Space-filling curve helpers | No |
+| `shellfs` | Shell-backed SQL tools | No |
+
+Required extensions are loaded during bootstrap. SQL macro loading is fail-fast, so initialization aborts if a required runtime path cannot be bound cleanly.
+
+## Bootstrap And Runtime State
+
+Agent Farm bootstraps DuckDB in this order:
+
+1. Load DuckDB extensions.
+2. Initialize the Spec Engine schema, macros, intelligence layer, and seed data.
+3. Register Python UDFs used by SQL and runtime workflows.
+4. Create runtime tables for sessions, approvals, radio messages, and org coordination.
+5. Load top-level SQL macros.
+
+In addition to spec tables, the initialized database contains runtime tables such as:
+
+- `agent_sessions` for persisted REPL and agent state
+- `pending_approvals` for approval requests and decisions
+- `org_calls` for inter-org dispatch history
+- `radio_messages` and `radio_subscriptions` for persistent coordination events
 
 ## Schema
 
@@ -129,6 +159,8 @@ CREATE TABLE spec_payloads (
     schema_ref  VARCHAR             -- Reference to a schema spec
 );
 ```
+
+IDs for spec tables are allocated through DuckDB sequences, not via `MAX(id) + 1`, so writes are safe under concurrent usage.
 
 ### Spec Kinds
 
@@ -291,18 +323,14 @@ SELECT spec_is_valid('agent_config_schema', '{"name": "test"}');
 ### MCP Remote Helpers
 
 ```sql
--- List resources from a remote MCP server
-SELECT * FROM mcp_list_remote('server_name');
-
--- List tools from a remote MCP server
-SELECT * FROM mcp_list_tools_remote('server_name');
-
 -- Call a remote MCP tool
 SELECT mcp_call_remote_tool('server_name', 'tool_name', '{"arg": "value"}');
 
 -- Get a resource from a remote MCP server
 SELECT mcp_get_remote_resource('server_name', 'resource://uri');
 ```
+
+For programmatic remote MCP access, prefer the Python methods `SpecEngine.mcp_query_remote()` and `SpecEngine.mcp_call_remote_tool()`.
 
 ## HTTP API
 
@@ -314,7 +342,7 @@ The Spec Engine can be exposed over HTTP using the `httpserver` extension.
 # Via environment variables
 export SPEC_ENGINE_HTTP_PORT=9999
 export SPEC_ENGINE_API_KEY=your-secret-key
-agent-farm
+agent-farm mcp
 ```
 
 ```sql
@@ -328,7 +356,7 @@ SELECT spec_http_start(9999, 'your-secret-key');
 # List all specs
 curl -X POST \
      -H "X-API-Key: your-secret-key" \
-     -d "SELECT * FROM api_specs_list" \
+     -d "SELECT * FROM spec_list_active()" \
      http://localhost:9999/
 
 # Get a specific spec
@@ -346,11 +374,48 @@ curl -X POST \
 # Get statistics
 curl -X POST \
      -H "X-API-Key: your-secret-key" \
-     -d "SELECT * FROM api_stats" \
+     -d "SELECT * FROM spec_stats()" \
      http://localhost:9999/
 ```
 
 ## Agent Usage Guide
+
+## Runtime Workflows
+
+### Approval Flow
+
+Approval requests are persisted in `pending_approvals` and can be resolved from either SQL or the CLI.
+
+```sql
+SELECT request_approval(
+    'session-1',
+    'shell_run',
+    '{"cmd":"docker deploy my-service"}',
+    'Destructive operation'
+);
+
+SELECT get_pending_approvals('session-1');
+SELECT resolve_approval(1, 'approved', 'operator');
+```
+
+```bash
+agent-farm approval list
+agent-farm approval resolve 1 approved --resolved-by operator
+```
+
+### REPL Streaming
+
+The REPL streams model output incrementally when the active backend supports streaming. If the backend or request path does not support streaming, Agent Farm falls back to the standard buffered response path automatically.
+
+### Persistent Radio Events
+
+Radio/pub-sub events are stored in DuckDB tables so queued messages survive process restarts when you use a file-backed database.
+
+```sql
+SELECT radio_transmit_message('builds', '{"state":"queued"}');
+SELECT radio_listen('builds', 1000);
+SELECT radio_channel_list();
+```
 
 ### For Pia (Planner Agent)
 
@@ -435,16 +500,23 @@ The Spec Engine comes pre-seeded with:
 ## File Structure
 
 ```
-db/
-├── spec_engine_init.sql     # Extension installation
-├── spec_engine_schema.sql   # Table definitions
-├── spec_engine_macros.sql   # SQL macros (30+)
-├── spec_engine_seed.sql     # Initial data (20+ specs)
-└── spec_engine_http.sql     # HTTP API configuration
-
 src/agent_farm/
-├── spec_engine.py           # Python SpecEngine class
-├── main.py                  # Entry point (integrates Spec Engine)
+├── main.py                  # Bootstrap, extension loading, runtime tables
+├── spec_engine.py           # Python SpecEngine class and MCP-facing helpers
+├── repl.py                  # Interactive REPL with streaming chat
+├── udfs.py                  # Python UDFs for chat, approvals, and radio
+├── sql/
+│   ├── base.sql
+│   ├── ollama.sql
+│   ├── harness.sql
+│   ├── ui.sql
+│   ├── org_tools.sql
+│   └── spec/
+│       ├── schema.sql       # Spec schema and views
+│       ├── intelligence.sql # Embeddings, memory, knowledge bases
+│       ├── macros.sql       # Spec query/render/validation macros
+│       ├── rag.sql          # Hybrid retrieval and memory macros
+│       └── seed.sql         # Seed specs and templates
 └── ...
 
 docs/
@@ -459,6 +531,10 @@ docs/
 | `SPEC_ENGINE_DB` | Path to Spec Engine database | `db/spec_engine.db` |
 | `SPEC_ENGINE_HTTP_PORT` | HTTP server port | None (disabled) |
 | `SPEC_ENGINE_API_KEY` | HTTP API authentication key | None |
+| `OLLAMA_BASE_URL` | Ollama chat endpoint | `http://localhost:11434` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | None |
+| `ANTHROPIC_BASE_URL` | Anthropic endpoint override | `https://api.anthropic.com` |
+| `SEARXNG_BASE_URL` | SearXNG endpoint for research macros | `http://searxng:8080` |
 
 ## Python API Reference
 
@@ -492,7 +568,7 @@ result = engine.validate_payload_against_spec("schema", "agent_config_schema", p
 
 # CRUD operations
 engine.spec_create(kind="agent", name="nova", summary="Research agent")
-engine.spec_update(id=10, status="active")
+engine.spec_update(id=10, version="1.0.1", status="active")
 engine.spec_delete(id=10)
 
 # Utilities
@@ -574,9 +650,6 @@ SELECT spec_workflow_steps('agent_onboarding');
 
 ```sql
 -- Remote MCP operations
-SELECT * FROM mcp_list_remote('server');
-SELECT * FROM mcp_list_tools_remote('server');
-SELECT * FROM mcp_list_prompts_remote('server');
 SELECT mcp_call_remote_tool('server', 'tool', '{"arg": "value"}');
 SELECT mcp_get_remote_resource('server', 'uri');
 SELECT mcp_get_remote_prompt('server', 'prompt', '{"arg": "value"}');
