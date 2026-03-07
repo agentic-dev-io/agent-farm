@@ -384,6 +384,95 @@ def create_agent_tables(con: duckdb.DuckDBPyConnection) -> None:
     print("Agent infrastructure tables created.", file=sys.stderr)
 
 
+def seed_macros_to_spec_engine(con: duckdb.DuckDBPyConnection) -> int:
+    """
+    Parse all SQL macro files and insert each macro as a kind='macro' spec object.
+    Idempotent: skips macros already present (matched by name + kind).
+    Returns the number of newly seeded macros.
+    """
+    import re
+
+    from .spec_engine import get_spec_engine
+
+    engine = get_spec_engine(con)
+    sql_dir = Path(__file__).parent / "sql"
+
+    # Category mapping: file stem → human label
+    category_map = {
+        "base": "Utilities",
+        "ollama": "LLM & Embeddings",
+        "tools": "Web / Shell / Files / Git",
+        "agent": "Security & Approval",
+        "harness": "Agent Harness & Routing",
+        "orgs": "Organizations & Orchestration",
+        "org_tools": "Org Operations",
+        "ui": "MCP Apps & UI",
+        "extensions": "Advanced Extensions",
+        "macros": "Spec Engine",
+        "rag": "RAG & Vector Search",
+    }
+
+    # Fetch already-seeded macro names to skip duplicates
+    existing: set[str] = set()
+    try:
+        rows = con.execute("SELECT name FROM spec_objects WHERE kind = 'macro'").fetchall()
+        existing = {r[0] for r in rows}
+    except Exception:
+        pass
+
+    seeded = 0
+    for sql_file in sql_dir.rglob("*.sql"):
+        category = category_map.get(sql_file.stem, sql_file.stem)
+        text = sql_file.read_text(encoding="utf-8", errors="replace")
+
+        # Walk through line-by-line to capture the comment above each macro
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            m = re.match(r"CREATE OR REPLACE MACRO\s+(\w+)\s*\(([^)]*)\)", line, re.IGNORECASE)
+            if not m:
+                continue
+
+            name = m.group(1)
+            args = m.group(2).strip()
+            signature = f"{name}({args})"
+
+            if name in existing:
+                continue
+
+            # Collect comment lines immediately above
+            description_lines = []
+            j = i - 1
+            while j >= 0 and lines[j].strip().startswith("--"):
+                description_lines.insert(0, lines[j].strip().lstrip("- ").strip())
+                j -= 1
+            description = " ".join(description_lines) if description_lines else f"{category} macro"
+
+            try:
+                engine.spec_create(
+                    kind="macro",
+                    name=name,
+                    summary=description,
+                    version="1.0.0",
+                    status="active",
+                    doc=(
+                        f"```sql\nSELECT {signature};\n```\n\n"
+                        f"**Category:** {category}  \n**File:** `{sql_file.name}`"
+                    ),
+                    payload={
+                        "signature": signature,
+                        "args": args,
+                        "category": category,
+                        "file": sql_file.name,
+                    },
+                )
+                existing.add(name)
+                seeded += 1
+            except Exception as e:
+                print(f"  Skipping macro {name}: {e}", file=sys.stderr)
+
+    return seeded
+
+
 def main():
     """
     Main entry point for the Agent Farm MCP Server.
@@ -486,7 +575,17 @@ def main():
     except Exception as e:
         print(f"Error seeding orgs: {e}", file=sys.stderr)
 
-    # 9. Create extension info table
+    # 9. Seed SQL macros into Spec Engine (self-knowledge)
+    try:
+        seeded = seed_macros_to_spec_engine(con)
+        if seeded:
+            print(f"Seeded {seeded} macros into Spec Engine.", file=sys.stderr)
+        else:
+            print("Macro specs already up to date.", file=sys.stderr)
+    except Exception as e:
+        print(f"Warning: macro seeding failed: {e}", file=sys.stderr)
+
+    # 10. Create extension info table
     con.sql(f"""
         CREATE OR REPLACE TABLE loaded_extensions AS
         SELECT unnest({loaded_extensions!r}::VARCHAR[]) as extension_name
