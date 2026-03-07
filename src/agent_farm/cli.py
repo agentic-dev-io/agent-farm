@@ -30,71 +30,27 @@ out = Console()
 
 
 def init_farm(db: str = ":memory:", quiet: bool = False) -> tuple:
-    """Initialize DuckDB + Spec Engine. Returns (connection, spec_engine, loaded_extensions)."""
-    import duckdb
+    """Initialize DuckDB + Spec Engine. Thin wrapper around main.bootstrap_db."""
+    import sys
 
-    from .main import (
-        create_agent_tables,
-        create_runtime_tables,
-        extract_mcp_servers,
-        find_mcp_config,
-        load_core_extensions,
-        load_sql_macros,
-        setup_mcp_tables,
-    )
+    from .main import bootstrap_db
+    from .spec_engine import get_spec_engine
 
-    log = console.print if not quiet else lambda *a, **kw: None
+    if quiet:
+        import io
 
-    con = duckdb.connect(database=db)
-    log(f"[dim]DB: {db}[/dim]")
+        _old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
 
-    loaded_extensions = load_core_extensions(con)
-
-    from .spec_engine import get_spec_engine, register_spec_engine_tools
+    try:
+        con = bootstrap_db(db)
+    finally:
+        if quiet:
+            sys.stderr = _old_stderr
 
     spec_engine = get_spec_engine(con)
-    register_spec_engine_tools(con)
-
-    mcp_configs = find_mcp_config()
-    mcp_servers = extract_mcp_servers(mcp_configs)
-    if mcp_servers:
-        setup_mcp_tables(con, mcp_servers)
-    else:
-        con.sql("""
-            CREATE OR REPLACE TABLE mcp_servers (
-                name VARCHAR, command VARCHAR, args VARCHAR[],
-                env JSON, source_config VARCHAR
-            )
-        """)
-
-    try:
-        from .udfs import register_udfs
-
-        register_udfs(con)
-    except Exception:
-        pass
-
-    create_agent_tables(con)
-    create_runtime_tables(con)
-    load_sql_macros(con)
-
-    try:
-        from .orgs import generate_org_seed_sql
-
-        for stmt in generate_org_seed_sql().split(";"):
-            stmt = stmt.strip()
-            if stmt:
-                try:
-                    con.sql(stmt)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    con.sql(f"""
-        CREATE OR REPLACE TABLE loaded_extensions AS
-        SELECT unnest({loaded_extensions!r}::VARCHAR[]) as extension_name
-    """)
+    loaded_extensions = con.execute("SELECT extension_name FROM loaded_extensions").fetchall()
+    loaded_extensions = [r[0] for r in loaded_extensions]
 
     return con, spec_engine, loaded_extensions
 

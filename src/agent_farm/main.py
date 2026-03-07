@@ -487,34 +487,31 @@ def seed_macros_to_spec_engine(con: duckdb.DuckDBPyConnection) -> int:
     return seeded
 
 
-def main():
+def bootstrap_db(db_path: str) -> duckdb.DuckDBPyConnection:
     """
-    Main entry point for the Agent Farm MCP Server.
+    Canonical bootstrap for Agent Farm. Creates and fully initializes a DuckDB connection.
 
     Initialization order:
-    1. Create DuckDB connection
+    1. Connect to DuckDB
     2. Load core extensions
-    3. Initialize Spec Engine (schema, macros, seed data)
+    3. Initialize Spec Engine (schema + UDFs)
     4. Discover MCP configurations
-    5. Register Python UDFs (before SQL macros, as macros may reference them)
-    6. Create agent infrastructure tables (before SQL macros reference them)
-    7. Create runtime tables (sessions, audit, approvals)
+    5. Register Python UDFs
+    6. Create agent infrastructure tables
+    7. Create runtime tables
     8. Load SQL macros
-    9. Seed organization configs
-    10. Start MCP Server
-    """
-    # Get database path from environment or use in-memory
-    db_path = os.environ.get("DUCKDB_DATABASE", ":memory:")
+    9. Seed org configs
+    10. Seed macros into Spec Engine (self-knowledge)
+    11. Populate loaded_extensions table
 
-    # Initialize DuckDB connection
+    Both the MCP server (main()) and CLI (cli.init_farm()) call this.
+    """
     con = duckdb.connect(database=db_path)
     print(f"Initializing Agent Farm (db: {db_path})...", file=sys.stderr)
 
-    # 1. Load Core Extensions
     print("Loading extensions...", file=sys.stderr)
     loaded_extensions = load_core_extensions(con)
 
-    # 2. Initialize Spec Engine (the heart of the system)
     print("Initializing Spec Engine...", file=sys.stderr)
     try:
         from .spec_engine import get_spec_engine, register_spec_engine_tools
@@ -527,26 +524,19 @@ def main():
     except Exception as e:
         print(f"Error initializing Spec Engine: {e}", file=sys.stderr)
 
-    # 3. MCP Config Discovery
     print("Discovering MCP configurations...", file=sys.stderr)
     mcp_configs = find_mcp_config()
     mcp_servers = extract_mcp_servers(mcp_configs)
-
     if mcp_servers:
         setup_mcp_tables(con, mcp_servers)
     else:
         print("No MCP configurations found", file=sys.stderr)
         con.sql("""
             CREATE OR REPLACE TABLE mcp_servers (
-                name VARCHAR,
-                command VARCHAR,
-                args VARCHAR[],
-                env JSON,
-                source_config VARCHAR
+                name VARCHAR, command VARCHAR, args VARCHAR[], env JSON, source_config VARCHAR
             )
         """)
 
-    # 4. Register Python UDFs BEFORE SQL macros (macros reference getenv etc.)
     try:
         from .udfs import register_udfs
 
@@ -557,26 +547,20 @@ def main():
     except Exception as e:
         print(f"Error registering UDFs: {e}", file=sys.stderr)
 
-    # 5. Create Agent Infrastructure Tables (workspaces, security_policy, etc.)
-    #    Must exist before SQL macros are loaded, as macros reference these tables.
     print("Creating agent infrastructure tables...", file=sys.stderr)
     create_agent_tables(con)
 
-    # 6. Create Runtime Tables (sessions, audit, approvals)
     print("Creating runtime tables...", file=sys.stderr)
     create_runtime_tables(con)
 
-    # 7. Load SQL Macros
     print("Loading SQL macros...", file=sys.stderr)
     total_macros = load_sql_macros(con)
     print(f"Total: {total_macros} macros loaded.", file=sys.stderr)
 
-    # 8. Seed Organization Configurations
     try:
         from .orgs import generate_org_seed_sql
 
-        org_seed_sql = generate_org_seed_sql()
-        for stmt in org_seed_sql.split(";"):
+        for stmt in generate_org_seed_sql().split(";"):
             stmt = stmt.strip()
             if stmt:
                 try:
@@ -589,7 +573,6 @@ def main():
     except Exception as e:
         print(f"Error seeding orgs: {e}", file=sys.stderr)
 
-    # 9. Seed SQL macros into Spec Engine (self-knowledge)
     try:
         seeded = seed_macros_to_spec_engine(con)
         if seeded:
@@ -599,11 +582,18 @@ def main():
     except Exception as e:
         print(f"Warning: macro seeding failed: {e}", file=sys.stderr)
 
-    # 10. Create extension info table
     con.sql(f"""
         CREATE OR REPLACE TABLE loaded_extensions AS
         SELECT unnest({loaded_extensions!r}::VARCHAR[]) as extension_name
     """)
+
+    return con
+
+
+def main():
+    """MCP server entry point — bootstraps DB then starts the MCP server."""
+    db_path = os.environ.get("DUCKDB_DATABASE", ":memory:")
+    con = bootstrap_db(db_path)
 
     # 9. Optionally start HTTP server for Spec Engine
     http_port = os.environ.get("SPEC_ENGINE_HTTP_PORT")
