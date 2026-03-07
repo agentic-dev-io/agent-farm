@@ -76,6 +76,7 @@ def test_macros():
     # Register UDFs (getenv etc. – needed by macros); requires numpy for DuckDB create_function
     try:
         from agent_farm.udfs import register_udfs
+
         register_udfs(con)
     except Exception as e:
         pytest.skip(f"UDFs not available: {e}")
@@ -103,13 +104,10 @@ def test_macros():
     print("\nLoading macros...")
     sql_dir = os.path.join("src", "agent_farm", "sql")
     all_files = [os.path.basename(p) for p in glob.glob(os.path.join(sql_dir, "*.sql"))]
-    sql_files = [
-        os.path.join(sql_dir, f)
-        for f in SQL_LOAD_ORDER
-        if f in all_files
-    ]
+    sql_files = [os.path.join(sql_dir, f) for f in SQL_LOAD_ORDER if f in all_files]
     sql_files += sorted(
-        p for p in glob.glob(os.path.join(sql_dir, "*.sql"))
+        p
+        for p in glob.glob(os.path.join(sql_dir, "*.sql"))
         if os.path.basename(p) not in SQL_LOAD_ORDER
     )
     if not sql_files:

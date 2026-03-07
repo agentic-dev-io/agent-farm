@@ -162,17 +162,13 @@ class TestSpecEngineSeed:
 
     def test_skills_seeded(self, con):
         """Test that skills are seeded."""
-        result = con.sql(
-            "SELECT COUNT(*) FROM spec_objects WHERE kind = 'skill'"
-        ).fetchone()
+        result = con.sql("SELECT COUNT(*) FROM spec_objects WHERE kind = 'skill'").fetchone()
         assert result is not None
         assert result[0] >= 3  # At least 3 skills
 
     def test_schemas_seeded(self, con):
         """Test that schemas are seeded."""
-        result = con.sql(
-            "SELECT COUNT(*) FROM spec_objects WHERE kind = 'schema'"
-        ).fetchone()
+        result = con.sql("SELECT COUNT(*) FROM spec_objects WHERE kind = 'schema'").fetchone()
         assert result is not None
         assert result[0] >= 3  # At least 3 schemas
 
@@ -186,9 +182,7 @@ class TestSpecEngineSeed:
 
     def test_orgs_seeded(self, con):
         """Test that organizations are seeded."""
-        result = con.sql(
-            "SELECT COUNT(*) FROM spec_objects WHERE kind = 'org'"
-        ).fetchone()
+        result = con.sql("SELECT COUNT(*) FROM spec_objects WHERE kind = 'org'").fetchone()
         assert result is not None
         assert result[0] >= 5  # All 5 orgs
 
@@ -309,9 +303,7 @@ class TestSpecEngineModule:
     def test_validate_payload_success(self, spec_engine):
         """Test validate_payload_against_spec with valid payload."""
         result = spec_engine.validate_payload_against_spec(
-            kind="schema",
-            name="agent_config_schema",
-            payload={"name": "test", "role": "planner"}
+            kind="schema", name="agent_config_schema", payload={"name": "test", "role": "planner"}
         )
         # Should succeed or have no schema (ok=True or note about no schema)
         assert "ok" in result or "note" in result
@@ -371,14 +363,12 @@ class TestSpecEngineIntegration:
         con = full_setup
 
         # Count from table
-        table_count = con.sql(
-            "SELECT COUNT(*) FROM spec_objects WHERE kind = 'agent'"
-        ).fetchone()[0]
+        table_count = con.sql("SELECT COUNT(*) FROM spec_objects WHERE kind = 'agent'").fetchone()[
+            0
+        ]
 
         # Count from view
-        view_count = con.sql(
-            "SELECT COUNT(*) FROM spec_agents_view"
-        ).fetchone()[0]
+        view_count = con.sql("SELECT COUNT(*) FROM spec_agents_view").fetchone()[0]
 
         assert table_count == view_count
 
