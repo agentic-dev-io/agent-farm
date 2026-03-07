@@ -168,7 +168,8 @@ SELECT shell('ls -la');
 SELECT py('print(2+2)');
 ```
 
-See [docs/spec_engine.md](docs/spec_engine.md) for the full SQL macro reference.
+See [docs/macros.md](docs/macros.md) for the full SQL macro reference (all 280 macros with signatures and descriptions).  
+See [docs/spec_engine.md](docs/spec_engine.md) for the Spec Engine architecture and runtime guide.
 
 ---
 

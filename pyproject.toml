@@ -1,7 +1,7 @@
 [project]
 name = "agent-farm"
 version = "0.2.0"
-description = "DuckDB multi-org agent swarm with Spec Engine, 175+ SQL macros, meta-learning, MCP Apps, and smart extensions"
+description = "DuckDB multi-org agent swarm with Spec Engine, 280+ SQL macros, meta-learning, MCP Apps, and smart extensions"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
