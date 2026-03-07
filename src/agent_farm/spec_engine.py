@@ -22,6 +22,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 import duckdb
@@ -59,6 +60,9 @@ class SpecEngine:
 
         # Load schema
         self._load_schema()
+
+        # Register internal UDFs before loading SQL macros that depend on them.
+        self._register_internal_udfs()
 
         # Load macros
         self._load_macros()
@@ -109,6 +113,86 @@ class SpecEngine:
                 return True
         return False
 
+    def _render_template(self, template_str: str | None, context_json: str | None) -> str | None:
+        """Render a MiniJinja template via parameter binding."""
+        if not template_str:
+            return None
+
+        context_json = context_json or "{}"
+        result = self.con.execute(
+            "SELECT minijinja_render(?, ?)",
+            [template_str, context_json],
+        ).fetchone()
+        return result[0] if result else None
+
+    def _register_internal_udfs(self) -> None:
+        """Register internal helper UDFs used by SQL macros."""
+
+        def spec_render_template_udf(template_name: str, context_json: str) -> str | None:
+            template = self.con.execute(
+                """
+                SELECT p.payload->>'template'
+                FROM spec_objects o
+                JOIN spec_payloads p ON p.object_id = o.id
+                WHERE o.kind IN ('task_template', 'prompt_template')
+                  AND o.name = ?
+                  AND o.status = 'active'
+                ORDER BY o.version DESC
+                LIMIT 1
+                """,
+                [template_name],
+            ).fetchone()
+            return self._render_template(template[0] if template else None, context_json)
+
+        def spec_render_template_version_udf(
+            template_name: str,
+            version_name: str,
+            context_json: str,
+        ) -> str | None:
+            template = self.con.execute(
+                """
+                SELECT p.payload->>'template'
+                FROM spec_objects o
+                JOIN spec_payloads p ON p.object_id = o.id
+                WHERE o.kind IN ('task_template', 'prompt_template')
+                  AND o.name = ?
+                  AND o.version = ?
+                LIMIT 1
+                """,
+                [template_name, version_name],
+            ).fetchone()
+            return self._render_template(template[0] if template else None, context_json)
+
+        def spec_render_direct_udf(template_str: str, context_json: str) -> str | None:
+            return self._render_template(template_str, context_json)
+
+        internal_udfs = [
+            ("spec_render_template_udf", spec_render_template_udf, [str, str]),
+            (
+                "spec_render_template_version_udf",
+                spec_render_template_version_udf,
+                [str, str, str],
+            ),
+            ("spec_render_direct_udf", spec_render_direct_udf, [str, str]),
+        ]
+
+        for name, func, params in internal_udfs:
+            try:
+                self.con.remove_function(name)
+            except Exception:
+                pass
+            self.con.create_function(
+                name,
+                func,
+                params,
+                str,
+                null_handling="special",
+            )
+
+    def _next_id(self, sequence_name: str) -> int:
+        """Get the next ID from a known sequence."""
+        return self.con.execute(f"SELECT nextval('{sequence_name}')").fetchone()[0]
+
     def _load_sql_file(self, filepath: str) -> int:
         """Load and execute a SQL file, returning number of statements executed."""
         if not os.path.exists(filepath):
@@ -121,6 +205,7 @@ class SpecEngine:
         # Split into statements
         statements = self._split_sql(sql_content)
         executed = 0
+        errors: list[str] = []
 
         for stmt in statements:
             stmt = stmt.strip()
@@ -131,8 +216,11 @@ class SpecEngine:
                 self.con.sql(stmt)
                 executed += 1
             except Exception as e:
-                print(f"Spec Engine: Error in {filepath}: {e}", file=sys.stderr)
-                print(f"  Statement: {stmt[:100]}...", file=sys.stderr)
+                errors.append(f"{e}\n  Statement: {stmt[:100]}...")
+
+        if errors:
+            joined = "\n".join(errors[:20])
+            raise RuntimeError(f"Spec Engine: Error in {filepath}:\n{joined}")
 
         return executed
 
@@ -648,10 +736,7 @@ class SpecEngine:
             Dict with created spec id or error
         """
         try:
-            # Get next ID
-            next_id = self.con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_objects"
-            ).fetchone()[0]
+            next_id = self._next_id("spec_objects_seq")
 
             # Insert spec object
             self.con.execute(
@@ -664,9 +749,7 @@ class SpecEngine:
 
             # Insert doc if provided
             if doc:
-                doc_id = self.con.execute(
-                    "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_docs"
-                ).fetchone()[0]
+                doc_id = self._next_id("spec_docs_seq")
                 self.con.execute(
                     "INSERT INTO spec_docs (id, object_id, doc) VALUES (?, ?, ?)",
                     [doc_id, next_id, doc],
@@ -674,9 +757,7 @@ class SpecEngine:
 
             # Insert payload if provided
             if payload is not None:
-                payload_id = self.con.execute(
-                    "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_payloads"
-                ).fetchone()[0]
+                payload_id = self._next_id("spec_payloads_seq")
                 payload_json = json.dumps(payload) if isinstance(payload, dict) else payload
                 self.con.execute(
                     "INSERT INTO spec_payloads (id, object_id, payload, schema_ref)"
@@ -692,6 +773,7 @@ class SpecEngine:
     def spec_update(
         self,
         id: int,
+        version: str | None = None,
         status: str | None = None,
         summary: str | None = None,
         doc: str | None = None,
@@ -702,6 +784,7 @@ class SpecEngine:
 
         Args:
             id: Spec ID to update
+            version: New version (optional)
             status: New status (optional)
             summary: New summary (optional)
             doc: New documentation (optional)
@@ -714,6 +797,9 @@ class SpecEngine:
             updates = []
             params = []
 
+            if version:
+                updates.append("version = ?")
+                params.append(version)
             if status:
                 updates.append("status = ?")
                 params.append(status)
@@ -736,9 +822,7 @@ class SpecEngine:
                 if existing:
                     self.con.execute("UPDATE spec_docs SET doc = ? WHERE object_id = ?", [doc, id])
                 else:
-                    doc_id = self.con.execute(
-                        "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_docs"
-                    ).fetchone()[0]
+                    doc_id = self._next_id("spec_docs_seq")
                     self.con.execute(
                         "INSERT INTO spec_docs (id, object_id, doc) VALUES (?, ?, ?)",
                         [doc_id, id, doc],
@@ -755,9 +839,7 @@ class SpecEngine:
                         [payload_json, id],
                     )
                 else:
-                    payload_id = self.con.execute(
-                        "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_payloads"
-                    ).fetchone()[0]
+                    payload_id = self._next_id("spec_payloads_seq")
                     self.con.execute(
                         "INSERT INTO spec_payloads (id, object_id, payload) VALUES (?, ?, ?)",
                         [payload_id, id, payload_json],
@@ -925,9 +1007,7 @@ class SpecEngine:
             Dict with feedback ID
         """
         try:
-            feedback_id = self.con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_feedback"
-            ).fetchone()[0]
+            feedback_id = self._next_id("spec_feedback_seq")
 
             self.con.execute(
                 """
@@ -978,9 +1058,7 @@ class SpecEngine:
             Dict with relationship ID
         """
         try:
-            rel_id = self.con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_relationships"
-            ).fetchone()[0]
+            rel_id = self._next_id("spec_relationships_seq")
 
             self.con.execute(
                 """
@@ -1157,9 +1235,7 @@ class SpecEngine:
             Dict with adaptation ID
         """
         try:
-            adaptation_id = self.con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_adaptations"
-            ).fetchone()[0]
+            adaptation_id = self._next_id("spec_adaptations_seq")
 
             self.con.execute(
                 """
@@ -1208,9 +1284,7 @@ class SpecEngine:
             Dict with learning ID
         """
         try:
-            learning_id = self.con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_learning"
-            ).fetchone()[0]
+            learning_id = self._next_id("spec_learning_seq")
 
             self.con.execute(
                 """
@@ -1400,9 +1474,7 @@ class SpecEngine:
 
             content_hash = hashlib.sha256(content.encode()).hexdigest()
 
-            emb_id = self.con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM spec_embeddings"
-            ).fetchone()[0]
+            emb_id = self._next_id("spec_embeddings_seq")
 
             self.con.execute(
                 """
@@ -1454,7 +1526,7 @@ class SpecEngine:
                     SELECT
                         id, spec_id, org_id, content_type,
                         content, metadata,
-                        array_cosine_similarity(embedding, ?::FLOAT[]) AS similarity
+                        list_cosine_similarity(embedding, ?::FLOAT[]) AS similarity
                     FROM spec_embeddings
                     WHERE content_type = ?
                       AND embedding IS NOT NULL
@@ -1467,7 +1539,7 @@ class SpecEngine:
                     SELECT
                         id, spec_id, org_id, content_type,
                         content, metadata,
-                        array_cosine_similarity(embedding, ?::FLOAT[]) AS similarity
+                        list_cosine_similarity(embedding, ?::FLOAT[]) AS similarity
                     FROM spec_embeddings
                     WHERE embedding IS NOT NULL
                     ORDER BY similarity DESC
@@ -1512,38 +1584,69 @@ class SpecEngine:
         """
         try:
             vector_weight = 1.0 - keyword_weight
-            type_filter = f"AND content_type = '{content_type}'" if content_type else ""
-
-            query = f"""
-                WITH keyword_matches AS (
-                    SELECT id, 1.0 AS keyword_score
-                    FROM spec_embeddings
-                    WHERE content ILIKE '%' || ? || '%'
-                    {type_filter}
-                ),
-                vector_matches AS (
+            params: list[Any]
+            if content_type:
+                query = f"""
+                    WITH keyword_matches AS (
+                        SELECT id, 1.0 AS keyword_score
+                        FROM spec_embeddings
+                        WHERE content ILIKE '%' || ? || '%'
+                          AND content_type = ?
+                    ),
+                    vector_matches AS (
+                        SELECT
+                            id,
+                            list_cosine_similarity(embedding, ?::FLOAT[]) AS vector_score
+                        FROM spec_embeddings
+                        WHERE embedding IS NOT NULL
+                          AND content_type = ?
+                    )
                     SELECT
-                        id,
-                        array_cosine_similarity(embedding, ?::FLOAT[]) AS vector_score
-                    FROM spec_embeddings
-                    WHERE embedding IS NOT NULL
-                    {type_filter}
-                )
-                SELECT
-                    e.id, e.spec_id, e.org_id, e.content_type,
-                    e.content, e.metadata,
-                    COALESCE(k.keyword_score, 0) AS keyword_score,
-                    COALESCE(v.vector_score, 0) AS vector_score,
-                    (COALESCE(k.keyword_score, 0) * {keyword_weight} +
-                     COALESCE(v.vector_score, 0) * {vector_weight}) AS hybrid_score
-                FROM spec_embeddings e
-                LEFT JOIN keyword_matches k ON k.id = e.id
-                LEFT JOIN vector_matches v ON v.id = e.id
-                WHERE k.id IS NOT NULL OR v.id IS NOT NULL
-                ORDER BY hybrid_score DESC
-                LIMIT ?
-            """
-            result = self.con.execute(query, [text_query, query_embedding, k]).fetchall()
+                        e.id, e.spec_id, e.org_id, e.content_type,
+                        e.content, e.metadata,
+                        COALESCE(k.keyword_score, 0) AS keyword_score,
+                        COALESCE(v.vector_score, 0) AS vector_score,
+                        (COALESCE(k.keyword_score, 0) * {keyword_weight} +
+                         COALESCE(v.vector_score, 0) * {vector_weight}) AS hybrid_score
+                    FROM spec_embeddings e
+                    LEFT JOIN keyword_matches k ON k.id = e.id
+                    LEFT JOIN vector_matches v ON v.id = e.id
+                    WHERE (k.id IS NOT NULL OR v.id IS NOT NULL)
+                      AND e.content_type = ?
+                    ORDER BY hybrid_score DESC
+                    LIMIT ?
+                """
+                params = [text_query, content_type, query_embedding, content_type, content_type, k]
+            else:
+                query = f"""
+                    WITH keyword_matches AS (
+                        SELECT id, 1.0 AS keyword_score
+                        FROM spec_embeddings
+                        WHERE content ILIKE '%' || ? || '%'
+                    ),
+                    vector_matches AS (
+                        SELECT
+                            id,
+                            list_cosine_similarity(embedding, ?::FLOAT[]) AS vector_score
+                        FROM spec_embeddings
+                        WHERE embedding IS NOT NULL
+                    )
+                    SELECT
+                        e.id, e.spec_id, e.org_id, e.content_type,
+                        e.content, e.metadata,
+                        COALESCE(k.keyword_score, 0) AS keyword_score,
+                        COALESCE(v.vector_score, 0) AS vector_score,
+                        (COALESCE(k.keyword_score, 0) * {keyword_weight} +
+                         COALESCE(v.vector_score, 0) * {vector_weight}) AS hybrid_score
+                    FROM spec_embeddings e
+                    LEFT JOIN keyword_matches k ON k.id = e.id
+                    LEFT JOIN vector_matches v ON v.id = e.id
+                    WHERE k.id IS NOT NULL OR v.id IS NOT NULL
+                    ORDER BY hybrid_score DESC
+                    LIMIT ?
+                """
+                params = [text_query, query_embedding, k]
+            result = self.con.execute(query, params).fetchall()
 
             columns = [
                 "id",
@@ -1587,9 +1690,7 @@ class SpecEngine:
             Dict with memory ID
         """
         try:
-            mem_id = self.con.execute(
-                "SELECT COALESCE(MAX(id), 0) + 1 FROM memory_conversations"
-            ).fetchone()[0]
+            mem_id = self._next_id("memory_conversations_seq")
 
             self.con.execute(
                 """
@@ -1673,10 +1774,7 @@ class SpecEngine:
         """
         try:
             if org == "dev":
-                table = "knowledge_dev"
-                entry_id = self.con.execute(
-                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
-                ).fetchone()[0]
+                entry_id = self._next_id("knowledge_dev_seq")
                 self.con.execute(
                     """
                     INSERT INTO knowledge_dev
@@ -1699,10 +1797,7 @@ class SpecEngine:
                     ],
                 )
             elif org == "research":
-                table = "knowledge_research"
-                entry_id = self.con.execute(
-                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
-                ).fetchone()[0]
+                entry_id = self._next_id("knowledge_research_seq")
                 self.con.execute(
                     """
                     INSERT INTO knowledge_research
@@ -1723,10 +1818,7 @@ class SpecEngine:
                     ],
                 )
             elif org == "studio":
-                table = "knowledge_studio"
-                entry_id = self.con.execute(
-                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
-                ).fetchone()[0]
+                entry_id = self._next_id("knowledge_studio_seq")
                 self.con.execute(
                     """
                     INSERT INTO knowledge_studio
@@ -1748,10 +1840,7 @@ class SpecEngine:
                     ],
                 )
             elif org == "ops":
-                table = "knowledge_ops"
-                entry_id = self.con.execute(
-                    f"SELECT COALESCE(MAX(id), 0) + 1 FROM {table}"
-                ).fetchone()[0]
+                entry_id = self._next_id("knowledge_ops_seq")
                 self.con.execute(
                     """
                     INSERT INTO knowledge_ops
@@ -1836,6 +1925,7 @@ class SpecEngine:
 
 # Global spec engine instance
 _spec_engine: SpecEngine | None = None
+_spec_engine_lock = Lock()
 
 
 def get_spec_engine(con: duckdb.DuckDBPyConnection | None = None) -> SpecEngine:
@@ -1849,12 +1939,19 @@ def get_spec_engine(con: duckdb.DuckDBPyConnection | None = None) -> SpecEngine:
         The global SpecEngine instance
     """
     global _spec_engine
-    if _spec_engine is None:
-        if con is None:
-            raise ValueError("Connection required for first SpecEngine initialization")
-        _spec_engine = SpecEngine(con)
-        _spec_engine.initialize()
-    return _spec_engine
+    with _spec_engine_lock:
+        if _spec_engine is None:
+            if con is None:
+                raise ValueError("Connection required for first SpecEngine initialization")
+            _spec_engine = SpecEngine(con)
+            _spec_engine.initialize()
+            return _spec_engine
+
+        if con is not None and _spec_engine.con is not con:
+            _spec_engine = SpecEngine(con)
+            _spec_engine.initialize()
+
+        return _spec_engine
 
 
 def register_spec_engine_tools(con: duckdb.DuckDBPyConnection) -> list[str]:

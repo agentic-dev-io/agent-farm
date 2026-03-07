@@ -22,6 +22,9 @@ app.add_typer(spec_app, name="spec")
 app_cmd = typer.Typer(help="MCP Apps — list and render UI templates.")
 app.add_typer(app_cmd, name="app")
 
+approval_app = typer.Typer(help="Review and resolve pending approvals.")
+app.add_typer(approval_app, name="approval")
+
 console = Console(stderr=True)
 out = Console()
 
@@ -404,6 +407,102 @@ def app_render(
     except Exception as e:
         console.print(f"[red]Render failed: {e}[/red]")
         raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
+# approval subcommands
+# ---------------------------------------------------------------------------
+
+
+@approval_app.callback()
+def approval_callback():
+    """Review and resolve pending approvals."""
+
+
+@approval_app.command("list")
+def approval_list(
+    session: Annotated[Optional[str], typer.Option(help="Filter by session ID.")] = None,
+    status: Annotated[str, typer.Option(help="Approval status filter.")] = "pending",
+    db: Annotated[str, typer.Option("--db", help="DuckDB database path.")] = "",
+):
+    """List pending or resolved approvals."""
+    db = db or _db_option()
+    con, _, _ = init_farm(db, quiet=True)
+
+    query = """
+        SELECT id, session_id, tool_name, reason, status, decision, created_at, resolved_by
+        FROM pending_approvals
+        WHERE status = ?
+    """
+    params: list[object] = [status]
+    if session:
+        query += " AND session_id = ?"
+        params.append(session)
+    query += " ORDER BY created_at DESC"
+
+    rows = con.execute(query, params).fetchall()
+    if not rows:
+        out.print("[dim]No approvals found.[/dim]")
+        return
+
+    table = Table(title=f"Approvals ({len(rows)})")
+    table.add_column("ID", justify="right", style="dim")
+    table.add_column("Session", style="cyan")
+    table.add_column("Tool", style="bold")
+    table.add_column("Reason", max_width=40)
+    table.add_column("Status")
+    table.add_column("Decision")
+    table.add_column("Resolver")
+
+    for row in rows:
+        table.add_row(
+            str(row[0]),
+            row[1],
+            row[2],
+            (row[3] or "")[:40],
+            row[4] or "",
+            row[5] or "",
+            row[7] or "",
+        )
+
+    out.print(table)
+
+
+@approval_app.command("resolve")
+def approval_resolve(
+    approval_id: Annotated[int, typer.Argument(help="Approval ID.")],
+    decision: Annotated[str, typer.Argument(help="approved or denied")],
+    resolved_by: Annotated[str, typer.Option(help="Resolver name.")] = "cli",
+    db: Annotated[str, typer.Option("--db", help="DuckDB database path.")] = "",
+):
+    """Resolve a pending approval."""
+    normalized_decision = decision.strip().lower()
+    if normalized_decision not in {"approved", "denied"}:
+        console.print("[red]Decision must be 'approved' or 'denied'.[/red]")
+        raise typer.Exit(1)
+
+    db = db or _db_option()
+    con, _, _ = init_farm(db, quiet=True)
+    row = con.execute(
+        "SELECT status FROM pending_approvals WHERE id = ?",
+        [approval_id],
+    ).fetchone()
+    if not row:
+        console.print("[red]Approval not found.[/red]")
+        raise typer.Exit(1)
+    if row[0] != "pending":
+        console.print(f"[yellow]Approval already resolved with status '{row[0]}'.[/yellow]")
+        raise typer.Exit(1)
+
+    con.execute(
+        """
+        UPDATE pending_approvals
+        SET status = ?, decision = ?, resolved_at = current_timestamp, resolved_by = ?
+        WHERE id = ?
+        """,
+        [normalized_decision, normalized_decision, resolved_by, approval_id],
+    )
+    out.print(f"approval={approval_id} decision={normalized_decision} resolver={resolved_by}")
 
 
 def cli():

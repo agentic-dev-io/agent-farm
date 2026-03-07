@@ -26,9 +26,9 @@ class OrgType(str, Enum):
 
     DEV = "dev"  # Development / Pipelines-as-Code
     OPS = "ops"  # Operations / CI/CD & Render
-    RESEARCH = "research"  # Recherche via SearXNG
-    STUDIO = "studio"  # Product / Creative / DCC-Briefings
-    ORCHESTRATOR = "orchestrator"  # Zentrale Steuerung
+    RESEARCH = "research"  # Research via SearXNG
+    STUDIO = "studio"  # Product / Creative / DCC briefings
+    ORCHESTRATOR = "orchestrator"  # Central coordination
 
 
 class WorkspaceMode(str, Enum):
@@ -103,28 +103,6 @@ CREATE TABLE IF NOT EXISTS security_policy (
         '*.env', '.env*', '*credentials*', '*secret*',
         '*.pem', '*.key', '*password*'
     ]
-);
-
--- Audit log
-CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY,
-    session_id VARCHAR NOT NULL,
-    timestamp TIMESTAMP DEFAULT now(),
-    entry_type VARCHAR NOT NULL,
-    tool_name VARCHAR,
-    parameters JSON,
-    result JSON,
-    decision VARCHAR,
-    violations VARCHAR[]
-);
-
--- Session state
-CREATE TABLE IF NOT EXISTS agent_sessions (
-    id VARCHAR PRIMARY KEY,
-    agent_id VARCHAR REFERENCES agent_config(id),
-    started_at TIMESTAMP DEFAULT now(),
-    status VARCHAR DEFAULT 'active',
-    messages JSON DEFAULT '[]'
 );
 """
 

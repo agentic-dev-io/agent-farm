@@ -4,6 +4,8 @@ Organization configurations for multi-agent system.
 Defines 5 organizations with their models, tools, workspaces, and restrictions.
 """
 
+import os
+
 from .schemas import OrgType, SecurityProfile, WorkspaceMode
 
 # =============================================================================
@@ -125,7 +127,7 @@ ORG_CONFIGS = {
             "research_find_similar_docs",
         ],
         "tools_requiring_approval": [],
-        "searxng_endpoint": "http://searxng:8080",
+        "searxng_endpoint": os.getenv("SEARXNG_BASE_URL", "http://searxng:8080"),
         "denials": [
             ("tool", "fetch", "Direct HTTP access not allowed"),
             ("tool", "fetch_url", "Direct HTTP access not allowed"),

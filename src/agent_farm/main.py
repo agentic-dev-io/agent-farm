@@ -219,9 +219,15 @@ def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
     These are operational tables, not specifications (specs live in spec_objects).
     """
     con.sql("""
+        -- Sequences
+        CREATE SEQUENCE IF NOT EXISTS audit_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS approval_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS org_call_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS radio_message_seq START 1;
+
         -- Audit log for all agent actions
         CREATE TABLE IF NOT EXISTS audit_log (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY DEFAULT nextval('audit_seq'),
             session_id VARCHAR NOT NULL,
             timestamp TIMESTAMP DEFAULT now(),
             entry_type VARCHAR NOT NULL,  -- 'tool_call', 'spec_access', 'feedback', 'learning'
@@ -236,7 +242,7 @@ def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
         -- Session state for active agent sessions
         CREATE TABLE IF NOT EXISTS agent_sessions (
             id VARCHAR PRIMARY KEY,
-            agent_spec_id INTEGER,        -- Reference to spec_objects (kind='agent')
+            agent_id VARCHAR,             -- Optional runtime agent identifier
             started_at TIMESTAMP DEFAULT now(),
             status VARCHAR DEFAULT 'active',
             context JSON DEFAULT '{}',    -- Session context/state
@@ -245,7 +251,7 @@ def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
 
         -- Pending approvals for sensitive operations
         CREATE TABLE IF NOT EXISTS pending_approvals (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY DEFAULT nextval('approval_seq'),
             session_id VARCHAR NOT NULL,
             spec_id INTEGER,              -- Reference to spec_objects
             tool_name VARCHAR NOT NULL,
@@ -253,16 +259,33 @@ def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
             reason VARCHAR,
             created_at TIMESTAMP DEFAULT now(),
             status VARCHAR DEFAULT 'pending',
+            decision VARCHAR,
             resolved_at TIMESTAMP,
             resolved_by VARCHAR
         );
 
+        -- Persistent radio channels and messages
+        CREATE TABLE IF NOT EXISTS radio_subscriptions (
+            sub_id VARCHAR PRIMARY KEY,
+            org_id VARCHAR,
+            channel_name VARCHAR NOT NULL,
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS radio_messages (
+            id INTEGER PRIMARY KEY DEFAULT nextval('radio_message_seq'),
+            channel_name VARCHAR NOT NULL,
+            payload JSON NOT NULL,
+            created_at TIMESTAMP DEFAULT now()
+        );
+
         -- Inter-organization calls (for swarm coordination)
         CREATE TABLE IF NOT EXISTS org_calls (
-            id INTEGER PRIMARY KEY,
+            id INTEGER PRIMARY KEY DEFAULT nextval('org_call_seq'),
             session_id VARCHAR NOT NULL,
-            caller_spec_id INTEGER NOT NULL,  -- Reference to spec_objects (kind='org')
-            target_spec_id INTEGER NOT NULL,  -- Reference to spec_objects (kind='org')
+            caller_org VARCHAR NOT NULL,
+            target_org VARCHAR NOT NULL,
             task VARCHAR NOT NULL,
             status VARCHAR DEFAULT 'pending',
             result JSON,
@@ -283,11 +306,6 @@ def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
             created_at TIMESTAMP DEFAULT now(),
             updated_at TIMESTAMP DEFAULT now()
         );
-
-        -- Sequences
-        CREATE SEQUENCE IF NOT EXISTS audit_seq START 1;
-        CREATE SEQUENCE IF NOT EXISTS approval_seq START 1;
-        CREATE SEQUENCE IF NOT EXISTS org_call_seq START 1;
     """)
     print("Runtime tables created.", file=sys.stderr)
 
@@ -312,6 +330,7 @@ def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
     """
     sql_dir = os.path.join(os.path.dirname(__file__), "sql")
     total_loaded = 0
+    errors: list[str] = []
 
     if os.path.isdir(sql_dir):
         all_files = [f for f in os.listdir(sql_dir) if f.endswith(".sql") and not f.startswith(".")]
@@ -335,11 +354,15 @@ def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
                     con.sql(statement)
                     loaded += 1
                 except Exception as e:
-                    print(f"Error in {sql_file}: {e}", file=sys.stderr)
+                    errors.append(f"{sql_file}: {e}")
             total_loaded += loaded
             print(f"Loaded {loaded} macros from {sql_file}", file=sys.stderr)
     else:
         print("Warning: sql/ directory not found, no macros loaded", file=sys.stderr)
+
+    if errors:
+        joined = "\n".join(errors[:20])
+        raise RuntimeError(f"Failed to load SQL macros:\n{joined}")
 
     return total_loaded
 

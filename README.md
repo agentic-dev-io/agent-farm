@@ -70,6 +70,9 @@ agent-farm spec search <query>          # Full-text search
 agent-farm app list                     # List MCP Apps (11+)
 agent-farm app render <id>              # Render a MiniJinja app template
 
+agent-farm approval list                # List pending approvals
+agent-farm approval resolve 1 approved  # Resolve approval request
+
 agent-farm sql <file.sql>               # Execute SQL against initialized DB
 ```
 
@@ -85,6 +88,8 @@ The default mode — chat with AI agents, run slash-commands:
 [DevOrg]> /status                              # Quick status summary
 [DevOrg]> /exit                                # Quit (saves session if --session)
 ```
+
+REPL responses stream incrementally when the backend supports it.
 
 ---
 
@@ -130,6 +135,10 @@ docs/                  # Documentation
 | **StudioOrg** | kimi-k2.5:cloud | standard | Specs, docs, DCC briefings |
 
 Each org has dedicated workspaces, allowed/denied tool lists, approval requirements, and smart extension integrations.
+
+Approval requests are persisted in DuckDB and can be reviewed via `agent-farm approval list`.
+
+Radio messages are persisted in DuckDB, so queued events survive process restarts when using a file-backed database.
 
 ---
 
@@ -189,6 +198,9 @@ See [docs/spec_engine.md](docs/spec_engine.md) for the full SQL macro reference.
 | `SPEC_ENGINE_HTTP_PORT` | HTTP server port | — |
 | `SPEC_ENGINE_API_KEY` | HTTP API key | — |
 | `OLLAMA_BASE_URL` | Ollama endpoint | `http://localhost:11434` |
+| `ANTHROPIC_API_KEY` | Anthropic API key | — |
+| `ANTHROPIC_BASE_URL` | Anthropic endpoint override | `https://api.anthropic.com` |
+| `SEARXNG_BASE_URL` | SearXNG endpoint | `http://searxng:8080` |
 | `BRAVE_API_KEY` | Brave Search key | — |
 
 ---

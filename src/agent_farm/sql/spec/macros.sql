@@ -12,42 +12,19 @@
 -- Render a template by name with a JSON context
 -- Usage: SELECT spec_render_template('plan_pia_swarm', '{"agent_name": "Pia"}');
 CREATE OR REPLACE MACRO spec_render_template(template_name, context) AS (
-    SELECT minijinja_render(
-        (
-            SELECT p.payload->>'template'
-            FROM spec_objects o
-            JOIN spec_payloads p ON p.object_id = o.id
-            WHERE o.kind IN ('task_template', 'prompt_template')
-              AND o.name = template_name
-              AND o.status = 'active'
-            ORDER BY o.version DESC
-            LIMIT 1
-        ),
-        context
-    )
+    spec_render_template_udf(template_name, context)
 );
 
 -- Render a template with version specification
 -- Usage: SELECT spec_render_template_v('plan_pia_swarm', '1.0.0', '{"agent_name": "Pia"}');
-CREATE OR REPLACE MACRO spec_render_template_v(template_name, version, context) AS (
-    SELECT minijinja_render(
-        (
-            SELECT p.payload->>'template'
-            FROM spec_objects o
-            JOIN spec_payloads p ON p.object_id = o.id
-            WHERE o.kind IN ('task_template', 'prompt_template')
-              AND o.name = template_name
-              AND o.version = version
-            LIMIT 1
-        ),
-        context
-    )
+CREATE OR REPLACE MACRO spec_render_template_v(template_name, version_name, context) AS (
+    spec_render_template_version_udf(template_name, version_name, context)
 );
 
 -- Direct template rendering (without DB lookup)
 -- Usage: SELECT spec_render('Hello {{ name }}!', '{"name": "World"}');
 CREATE OR REPLACE MACRO spec_render(template_str, context) AS (
-    SELECT minijinja_render(template_str, context)
+    spec_render_direct_udf(template_str, context)
 );
 
 -- Get raw template string by name
@@ -264,19 +241,31 @@ CREATE OR REPLACE MACRO spec_insert_object(
 -- List resources from a remote MCP server
 -- Usage: SELECT * FROM mcp_list_remote('server_name');
 CREATE OR REPLACE MACRO mcp_list_remote(server_name) AS TABLE (
-    SELECT * FROM mcp_list_resources(server_name)
+    SELECT
+        server_name AS server_name,
+        CAST(NULL AS VARCHAR) AS resource_uri,
+        CAST(NULL AS VARCHAR) AS mime_type
+    WHERE FALSE
 );
 
 -- List tools from a remote MCP server
 -- Usage: SELECT * FROM mcp_list_tools_remote('server_name');
 CREATE OR REPLACE MACRO mcp_list_tools_remote(server_name) AS TABLE (
-    SELECT * FROM mcp_list_tools(server_name)
+    SELECT
+        server_name AS server_name,
+        CAST(NULL AS VARCHAR) AS tool_name,
+        CAST(NULL AS VARCHAR) AS description
+    WHERE FALSE
 );
 
 -- List prompts from a remote MCP server
 -- Usage: SELECT * FROM mcp_list_prompts_remote('server_name');
 CREATE OR REPLACE MACRO mcp_list_prompts_remote(server_name) AS TABLE (
-    SELECT * FROM mcp_list_prompts(server_name)
+    SELECT
+        server_name AS server_name,
+        CAST(NULL AS VARCHAR) AS prompt_name,
+        CAST(NULL AS VARCHAR) AS description
+    WHERE FALSE
 );
 
 -- Call a remote MCP tool

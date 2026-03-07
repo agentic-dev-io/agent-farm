@@ -245,11 +245,11 @@ CREATE OR REPLACE MACRO execute_tool(agent_id_param, session_id_param, tool_name
 CREATE OR REPLACE MACRO execute_tool_safe(agent_id_param, session_id_param, tool_name, tool_params) AS (
     SELECT CASE
         WHEN requires_approval(agent_id_param, tool_name, tool_params)
-            THEN json_object(
-                'status', 'approval_required',
-                'tool', tool_name,
-                'params', tool_params,
-                'message', 'This action requires user approval'
+            THEN request_approval(
+                session_id_param,
+                tool_name,
+                tool_params,
+                'This action requires user approval'
             )
         WHEN tool_name = 'fs_read' THEN secure_read(agent_id_param, json_extract_string(tool_params, '$.path'))
         WHEN tool_name = 'fs_write' THEN secure_write(

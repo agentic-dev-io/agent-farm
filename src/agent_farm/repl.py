@@ -14,7 +14,7 @@ from rich.table import Table
 
 from .orgs import ORG_CONFIGS, ORG_SYSTEM_PROMPTS
 from .schemas import OrgType
-from .udfs import udf_agent_chat
+from .udfs import chat_with_model, stream_model_response
 
 log = logging.getLogger(__name__)
 out = Console()
@@ -48,7 +48,7 @@ def _save_session(
         con.execute(
             """
             INSERT OR REPLACE INTO agent_sessions
-                (id, agent_spec_id, started_at, status, context, messages)
+                (id, agent_id, started_at, status, context, messages)
             VALUES (?, NULL, ?, 'active', ?, ?)
             """,
             [
@@ -226,21 +226,33 @@ def _chat(org: OrgType, user_input: str, messages: list[dict]) -> str | None:
     system_prompt = ORG_SYSTEM_PROMPTS[org]
 
     messages.append({"role": "user", "content": user_input})
-
-    raw = udf_agent_chat(model, user_input, system_prompt)
+    content_chunks: list[str] = []
     try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        out.print(f"[red]Invalid response:[/red] {raw}")
-        return None
+        for chunk in stream_model_response(model, messages, system_prompt=system_prompt):
+            out.print(chunk, end="")
+            content_chunks.append(chunk)
+        if content_chunks:
+            out.print()
+            content = "".join(content_chunks)
+        else:
+            data = chat_with_model(model, messages, system_prompt=system_prompt)
+            if "error" in data:
+                out.print(f"[red]Error:[/red] {data['error']}")
+                messages.pop()
+                return None
+            content = data.get("content", "")
+            out.print(Markdown(content))
+    except Exception as exc:
+        data = chat_with_model(model, messages, system_prompt=system_prompt)
+        if "error" in data:
+            out.print(f"[red]Error:[/red] {data['error']}")
+            messages.pop()
+            return None
+        log.debug("streaming fallback: %s", exc)
+        content = data.get("content", "")
+        out.print(Markdown(content))
 
-    if "error" in data:
-        out.print(f"[red]Error:[/red] {data['error']}")
-        return None
-
-    content = data.get("content", "")
     messages.append({"role": "assistant", "content": content})
-    out.print(Markdown(content))
     return content
 
 

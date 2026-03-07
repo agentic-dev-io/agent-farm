@@ -11,9 +11,11 @@ Usage:
 
 import json
 import os
-from datetime import datetime
-from queue import Queue
-from threading import Lock
+import time
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 
@@ -30,10 +32,66 @@ def _get_anthropic_client():
         return None
 
 
+def _utc_now_iso() -> str:
+    """Return the current UTC timestamp in ISO-8601 format."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _ensure_runtime_support_tables(con: duckdb.DuckDBPyConnection) -> None:
+    """Create runtime helper tables used by Python UDFs."""
+    con.sql("""
+        CREATE SEQUENCE IF NOT EXISTS approval_seq START 1;
+        CREATE SEQUENCE IF NOT EXISTS radio_message_seq START 1;
+
+        CREATE TABLE IF NOT EXISTS pending_approvals (
+            id INTEGER PRIMARY KEY DEFAULT nextval('approval_seq'),
+            session_id VARCHAR NOT NULL,
+            spec_id INTEGER,
+            tool_name VARCHAR NOT NULL,
+            tool_params JSON,
+            reason VARCHAR,
+            created_at TIMESTAMP DEFAULT now(),
+            status VARCHAR DEFAULT 'pending',
+            decision VARCHAR,
+            resolved_at TIMESTAMP,
+            resolved_by VARCHAR
+        );
+
+        CREATE TABLE IF NOT EXISTS radio_subscriptions (
+            sub_id VARCHAR PRIMARY KEY,
+            org_id VARCHAR,
+            channel_name VARCHAR NOT NULL,
+            active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT now()
+        );
+
+        CREATE TABLE IF NOT EXISTS radio_messages (
+            id INTEGER PRIMARY KEY DEFAULT nextval('radio_message_seq'),
+            channel_name VARCHAR NOT NULL,
+            payload JSON NOT NULL,
+            created_at TIMESTAMP DEFAULT now()
+        );
+    """)
+
+
+def _prepare_messages(messages: list[dict], system_prompt: str | None = None) -> list[dict]:
+    """Normalize chat messages for model backends."""
+    prepared: list[dict] = []
+    if system_prompt:
+        prepared.append({"role": "system", "content": system_prompt})
+
+    for message in messages:
+        role = message.get("role")
+        content = message.get("content")
+        if role == "system" or content is None:
+            continue
+        prepared.append({"role": role, "content": content})
+
+    return prepared
+
+
 def _get_ollama_response(model: str, messages: list, tools: list | None = None) -> dict:
     """Call Ollama API directly."""
-    import urllib.request
-
     base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
     url = f"{base_url}/api/chat"
 
@@ -53,6 +111,134 @@ def _get_ollama_response(model: str, messages: list, tools: list | None = None) 
         return {"error": str(e)}
 
 
+def chat_with_model(
+    model: str,
+    messages: list[dict],
+    system_prompt: str | None = None,
+    tools: list | None = None,
+) -> dict:
+    """Send a message history to the configured backend."""
+    prepared_messages = _prepare_messages(messages, system_prompt)
+
+    if "claude" in model.lower():
+        client = _get_anthropic_client()
+        if client:
+            try:
+                anthropic_messages = [
+                    {"role": msg["role"], "content": msg["content"]}
+                    for msg in prepared_messages
+                    if msg["role"] != "system"
+                ]
+
+                request_kwargs = {
+                    "model": model,
+                    "max_tokens": 4096,
+                    "system": system_prompt or "",
+                    "messages": anthropic_messages,
+                }
+
+                if tools:
+                    anthropic_tools = []
+                    for tool in tools:
+                        if tool.get("type") == "function":
+                            func = tool.get("function", {})
+                            anthropic_tools.append(
+                                {
+                                    "name": func.get("name"),
+                                    "description": func.get("description", ""),
+                                    "input_schema": func.get("parameters", {}),
+                                }
+                            )
+                    if anthropic_tools:
+                        request_kwargs["tools"] = anthropic_tools
+
+                response = client.messages.create(**request_kwargs)
+
+                tool_calls = []
+                text_content = ""
+                for block in response.content:
+                    if block.type == "tool_use":
+                        tool_calls.append(
+                            {
+                                "id": block.id,
+                                "function": {
+                                    "name": block.name,
+                                    "arguments": json.dumps(block.input),
+                                },
+                            }
+                        )
+                    elif block.type == "text":
+                        text_content += block.text
+
+                payload = {
+                    "content": text_content,
+                    "model": model,
+                }
+                if tools:
+                    payload["tool_calls"] = tool_calls if tool_calls else None
+                    payload["stop_reason"] = response.stop_reason
+                else:
+                    payload["usage"] = {
+                        "input_tokens": response.usage.input_tokens,
+                        "output_tokens": response.usage.output_tokens,
+                    }
+                return payload
+            except Exception as e:
+                return {"error": str(e)}
+
+    response = _get_ollama_response(model, prepared_messages, tools)
+    if "error" in response:
+        return response
+
+    message = response.get("message", {})
+    payload = {
+        "content": message.get("content", ""),
+        "model": model,
+        "done": response.get("done", False),
+    }
+    if tools:
+        payload["tool_calls"] = message.get("tool_calls")
+    return payload
+
+
+def stream_model_response(
+    model: str,
+    messages: list[dict],
+    system_prompt: str | None = None,
+):
+    """Yield response chunks for interactive clients."""
+    prepared_messages = _prepare_messages(messages, system_prompt)
+
+    if "claude" in model.lower():
+        response = chat_with_model(model, messages, system_prompt=system_prompt)
+        if response.get("content"):
+            yield response["content"]
+        return
+
+    base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    url = f"{base_url}/api/chat"
+    payload = {"model": model, "messages": prepared_messages, "stream": True}
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=data, headers={"Content-Type": "application/json"}, method="POST"
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            for raw_line in resp:
+                line = raw_line.decode("utf-8").strip()
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield content
+    except Exception:
+        response = chat_with_model(model, messages, system_prompt=system_prompt)
+        if response.get("content"):
+            yield response["content"]
+
+
 # =============================================================================
 # UDF Functions
 # =============================================================================
@@ -70,47 +256,12 @@ def udf_agent_chat(model: str, prompt: str, system_prompt: str | None = None) ->
     Returns:
         JSON string with response
     """
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    # Check if using Anthropic
-    if "claude" in model.lower():
-        client = _get_anthropic_client()
-        if client:
-            try:
-                response = client.messages.create(
-                    model=model,
-                    max_tokens=4096,
-                    system=system_prompt or "",
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                return json.dumps(
-                    {
-                        "content": response.content[0].text,
-                        "model": model,
-                        "usage": {
-                            "input_tokens": response.usage.input_tokens,
-                            "output_tokens": response.usage.output_tokens,
-                        },
-                    }
-                )
-            except Exception as e:
-                return json.dumps({"error": str(e)})
-
-    # Use Ollama
-    response = _get_ollama_response(model, messages)
-    if "error" in response:
-        return json.dumps(response)
-
-    return json.dumps(
-        {
-            "content": response.get("message", {}).get("content", ""),
-            "model": model,
-            "done": response.get("done", False),
-        }
+    response = chat_with_model(
+        model,
+        [{"role": "user", "content": prompt}],
+        system_prompt=system_prompt,
     )
+    return json.dumps(response)
 
 
 def udf_agent_tools(
@@ -133,79 +284,59 @@ def udf_agent_tools(
     except json.JSONDecodeError:
         return json.dumps({"error": "Invalid tools_json"})
 
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    # Check if using Anthropic
-    if "claude" in model.lower():
-        client = _get_anthropic_client()
-        if client:
-            try:
-                # Convert tools to Anthropic format
-                anthropic_tools = []
-                for tool in tools:
-                    if tool.get("type") == "function":
-                        func = tool.get("function", {})
-                        anthropic_tools.append(
-                            {
-                                "name": func.get("name"),
-                                "description": func.get("description", ""),
-                                "input_schema": func.get("parameters", {}),
-                            }
-                        )
-
-                response = client.messages.create(
-                    model=model,
-                    max_tokens=4096,
-                    system=system_prompt or "",
-                    messages=[{"role": "user", "content": prompt}],
-                    tools=anthropic_tools if anthropic_tools else None,
-                )
-
-                # Extract tool use blocks
-                tool_calls = []
-                text_content = ""
-                for block in response.content:
-                    if block.type == "tool_use":
-                        tool_calls.append(
-                            {
-                                "id": block.id,
-                                "function": {
-                                    "name": block.name,
-                                    "arguments": json.dumps(block.input),
-                                },
-                            }
-                        )
-                    elif block.type == "text":
-                        text_content = block.text
-
-                return json.dumps(
-                    {
-                        "content": text_content,
-                        "tool_calls": tool_calls if tool_calls else None,
-                        "model": model,
-                        "stop_reason": response.stop_reason,
-                    }
-                )
-            except Exception as e:
-                return json.dumps({"error": str(e)})
-
-    # Use Ollama
-    response = _get_ollama_response(model, messages, tools)
-    if "error" in response:
-        return json.dumps(response)
-
-    message = response.get("message", {})
-    return json.dumps(
-        {
-            "content": message.get("content", ""),
-            "tool_calls": message.get("tool_calls"),
-            "model": model,
-            "done": response.get("done", False),
-        }
+    response = chat_with_model(
+        model,
+        [{"role": "user", "content": prompt}],
+        system_prompt=system_prompt,
+        tools=tools,
     )
+    return json.dumps(response)
+
+
+def _path_is_allowed(path: str, workspaces: list[tuple[str, str]]) -> bool:
+    """Return True when a path is inside one of the allowed workspaces."""
+    try:
+        candidate = Path(path).resolve()
+    except Exception:
+        return False
+
+    for workspace_path, _mode in workspaces:
+        try:
+            root = Path(workspace_path).resolve()
+        except Exception:
+            continue
+        if candidate == root or root in candidate.parents:
+            return True
+    return False
+
+
+def _execute_agent_tool(
+    tool_name: str,
+    tool_args: dict,
+    workspaces: list[tuple[str, str]],
+) -> dict:
+    """Execute a minimal local tool set for udf_agent_run."""
+    if tool_name == "fs_read":
+        path = tool_args.get("path", "")
+        if not path:
+            return {"error": "path required"}
+        if not _path_is_allowed(path, workspaces):
+            return {"error": "Path not in allowed workspace", "path": path}
+        return {"path": path, "content": Path(path).read_text(encoding="utf-8")}
+
+    if tool_name == "fs_list":
+        path = tool_args.get("path", "")
+        if not path:
+            return {"error": "path required"}
+        if not _path_is_allowed(path, workspaces):
+            return {"error": "Path not in allowed workspace", "path": path}
+        entries = sorted(p.name for p in Path(path).iterdir())
+        return {"path": path, "entries": entries}
+
+    if tool_name == "task_complete":
+        return {"result": tool_args.get("result", "Task complete")}
+
+    return {"error": f"Unknown tool: {tool_name}"}
 
 
 def udf_agent_run(
@@ -295,34 +426,35 @@ Only access files within these paths. Use task_complete when done."""
 
     trace = []
     final_result = None
+    messages = [{"role": "user", "content": prompt}]
 
     for turn in range(max_turns):
-        # Call model
-        response_json = udf_agent_tools(
-            model_name, prompt if turn == 0 else "", tools_json, system_prompt
+        response = chat_with_model(
+            model_name,
+            messages,
+            system_prompt=system_prompt,
+            tools=tools,
         )
-        response = json.loads(response_json)
 
         if "error" in response:
             return json.dumps({"error": response["error"], "trace": trace})
 
         trace.append({"turn": turn, "response": response})
+        if response.get("content"):
+            messages.append({"role": "assistant", "content": response["content"]})
 
         tool_calls = response.get("tool_calls")
         if not tool_calls:
             final_result = response.get("content", "")
             break
 
-        # Process tool calls
+        tool_results = []
         for tc in tool_calls:
             func_name = tc.get("function", {}).get("name")
             func_args = tc.get("function", {}).get("arguments", "{}")
+            args = json.loads(func_args) if isinstance(func_args, str) else func_args
 
             if func_name == "task_complete":
-                if isinstance(func_args, str):
-                    args = json.loads(func_args)
-                else:
-                    args = func_args
                 final_result = args.get("result", "Task complete")
                 result = {
                     "status": "complete",
@@ -332,7 +464,22 @@ Only access files within these paths. Use task_complete when done."""
                 }
                 return json.dumps(result)
 
-            trace.append({"tool": func_name, "args": func_args})
+            tool_result = _execute_agent_tool(func_name, args, workspaces)
+            tool_results.append(
+                {
+                    "tool": func_name,
+                    "args": args,
+                    "result": tool_result,
+                }
+            )
+            trace.append(tool_results[-1])
+
+        messages.append(
+            {
+                "role": "user",
+                "content": "Tool results:\n" + json.dumps(tool_results, ensure_ascii=True),
+            }
+        )
 
     return json.dumps(
         {
@@ -381,23 +528,102 @@ def udf_detect_injection(content: str) -> str | None:
 
 
 # ============================================================================
-# Radio Pub/Sub System (Windows-compatible replacement for radio extension)
+# Approval workflow helpers
 # ============================================================================
 
-# Global in-memory channels (one Queue per channel name)
-_radio_channels: dict[str, Queue] = {}
-_radio_lock = Lock()
+
+def udf_create_approval_request(
+    session_id: str,
+    tool_name: str,
+    tool_params: str | None,
+    reason: str | None,
+    con: duckdb.DuckDBPyConnection | None = None,
+) -> str:
+    """Create a persistent approval request."""
+    if con is None:
+        return json.dumps({"error": "No database connection"})
+    if not session_id or not tool_name:
+        return json.dumps({"error": "session_id and tool_name required"})
+
+    try:
+        _ensure_runtime_support_tables(con)
+        approval_id = con.execute("SELECT nextval('approval_seq')").fetchone()[0]
+        params_json = tool_params or "{}"
+        con.execute(
+            """
+            INSERT INTO pending_approvals (
+                id, session_id, tool_name, tool_params, reason, status
+            ) VALUES (?, ?, ?, ?, ?, 'pending')
+            """,
+            [approval_id, session_id, tool_name, params_json, reason],
+        )
+        return json.dumps(
+            {
+                "approval_id": approval_id,
+                "session_id": session_id,
+                "tool_name": tool_name,
+                "status": "pending",
+                "reason": reason,
+            }
+        )
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
-def _get_or_create_channel(channel_name: str) -> Queue:
-    """Get or create a queue for the given channel."""
-    with _radio_lock:
-        if channel_name not in _radio_channels:
-            _radio_channels[channel_name] = Queue(maxsize=1000)
-        return _radio_channels[channel_name]
+def udf_resolve_approval_request(
+    approval_id: int,
+    decision: str,
+    resolved_by: str,
+    con: duckdb.DuckDBPyConnection | None = None,
+) -> str:
+    """Resolve an approval request."""
+    if con is None:
+        return json.dumps({"error": "No database connection"})
+
+    normalized_decision = (decision or "").strip().lower()
+    if normalized_decision not in {"approved", "denied"}:
+        return json.dumps({"error": "decision must be approved or denied"})
+
+    try:
+        _ensure_runtime_support_tables(con)
+        row = con.execute(
+            "SELECT status FROM pending_approvals WHERE id = ?",
+            [approval_id],
+        ).fetchone()
+        if not row:
+            return json.dumps({"error": f"Approval {approval_id} not found"})
+        if row[0] != "pending":
+            return json.dumps({"error": f"Approval {approval_id} already resolved"})
+
+        con.execute(
+            """
+            UPDATE pending_approvals
+            SET status = ?, decision = ?, resolved_at = current_timestamp, resolved_by = ?
+            WHERE id = ?
+            """,
+            [normalized_decision, normalized_decision, resolved_by or "system", approval_id],
+        )
+        return json.dumps(
+            {
+                "approval_id": approval_id,
+                "status": normalized_decision,
+                "decision": normalized_decision,
+                "resolved_by": resolved_by or "system",
+            }
+        )
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
-def udf_radio_subscribe(channel_name: str) -> str:
+# ============================================================================
+# Radio Pub/Sub System (persistent DuckDB-backed implementation)
+# ============================================================================
+
+
+def udf_radio_subscribe(
+    channel_name: str,
+    con: duckdb.DuckDBPyConnection | None = None,
+) -> str:
     """
     Subscribe to a radio channel.
 
@@ -405,19 +631,37 @@ def udf_radio_subscribe(channel_name: str) -> str:
     """
     if not channel_name:
         return json.dumps({"error": "channel_name required"})
+    if con is None:
+        return json.dumps({"error": "No database connection"})
 
-    _get_or_create_channel(channel_name)
-    return json.dumps(
-        {
-            "channel": channel_name,
-            "subscribed": True,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "mode": "udf_radio",
-        }
-    )
+    try:
+        _ensure_runtime_support_tables(con)
+        sub_id = f"sub-{uuid4()}"
+        con.execute(
+            """
+            INSERT INTO radio_subscriptions (sub_id, org_id, channel_name, active)
+            VALUES (?, NULL, ?, TRUE)
+            """,
+            [sub_id, channel_name],
+        )
+        return json.dumps(
+            {
+                "channel": channel_name,
+                "subscribed": True,
+                "subscription_id": sub_id,
+                "timestamp": _utc_now_iso(),
+                "mode": "duckdb_persistent",
+            }
+        )
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
-def udf_radio_transmit_message(channel_name: str, message_json: str) -> str:
+def udf_radio_transmit_message(
+    channel_name: str,
+    message_json: str,
+    con: duckdb.DuckDBPyConnection | None = None,
+) -> str:
     """
     Publish a message to a radio channel.
 
@@ -429,27 +673,45 @@ def udf_radio_transmit_message(channel_name: str, message_json: str) -> str:
     """
     if not channel_name or not message_json:
         return json.dumps({"error": "channel_name and message_json required"})
+    if con is None:
+        return json.dumps({"error": "No database connection"})
 
     try:
-        channel = _get_or_create_channel(channel_name)
+        _ensure_runtime_support_tables(con)
 
         # Wrap message with metadata
         envelope = {
             "channel": channel_name,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": _utc_now_iso(),
             "payload": json.loads(message_json) if isinstance(message_json, str) else message_json,
         }
 
-        channel.put_nowait(json.dumps(envelope))
+        message_id = con.execute("SELECT nextval('radio_message_seq')").fetchone()[0]
+        con.execute(
+            """
+            INSERT INTO radio_messages (id, channel_name, payload)
+            VALUES (?, ?, ?)
+            """,
+            [message_id, channel_name, json.dumps(envelope)],
+        )
 
         return json.dumps(
-            {"channel": channel_name, "published": True, "timestamp": envelope["timestamp"]}
+            {
+                "channel": channel_name,
+                "published": True,
+                "message_id": message_id,
+                "timestamp": envelope["timestamp"],
+            }
         )
     except Exception as e:
         return json.dumps({"error": str(e)})
 
 
-def udf_radio_listen(channel_name: str, timeout_ms: int = 1000) -> str:
+def udf_radio_listen(
+    channel_name: str,
+    timeout_ms: int = 1000,
+    con: duckdb.DuckDBPyConnection | None = None,
+) -> str:
     """
     Listen for messages on a radio channel (non-blocking with timeout).
 
@@ -461,30 +723,60 @@ def udf_radio_listen(channel_name: str, timeout_ms: int = 1000) -> str:
     """
     if not channel_name:
         return json.dumps({"error": "channel_name required"})
+    if con is None:
+        return json.dumps({"error": "No database connection"})
 
     try:
-        channel = _get_or_create_channel(channel_name)
+        _ensure_runtime_support_tables(con)
         timeout_sec = (timeout_ms or 1000) / 1000.0
+        deadline = time.monotonic() + timeout_sec
 
-        message_json = channel.get(timeout=timeout_sec)
-        return message_json
-    except Exception:
-        # Timeout or empty queue
+        while time.monotonic() <= deadline:
+            row = con.execute(
+                """
+                SELECT id, payload
+                FROM radio_messages
+                WHERE channel_name = ?
+                ORDER BY id
+                LIMIT 1
+                """,
+                [channel_name],
+            ).fetchone()
+            if row:
+                con.execute("DELETE FROM radio_messages WHERE id = ?", [row[0]])
+                return row[1]
+            time.sleep(0.05)
+
         return json.dumps({"no_message": True, "channel": channel_name})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
-def udf_radio_channel_list() -> str:
+def udf_radio_channel_list(con: duckdb.DuckDBPyConnection | None = None) -> str:
     """
     List all active radio channels and their queue sizes.
 
     Returns JSON: {"channels": [{name, queue_size}, ...]}
     """
-    with _radio_lock:
-        channels = [
-            {"name": name, "queue_size": queue.qsize()} for name, queue in _radio_channels.items()
-        ]
+    if con is None:
+        return json.dumps({"error": "No database connection"})
 
-    return json.dumps({"channels": channels, "total": len(channels)})
+    try:
+        _ensure_runtime_support_tables(con)
+        rows = con.execute(
+            """
+            SELECT
+                channel_name,
+                COUNT(*) AS message_count
+            FROM radio_messages
+            GROUP BY channel_name
+            ORDER BY channel_name
+            """
+        ).fetchall()
+        channels = [{"name": row[0], "queue_size": row[1]} for row in rows]
+        return json.dumps({"channels": channels, "total": len(channels)})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
 
 
 def udf_getenv(name: str) -> str | None:
@@ -563,6 +855,20 @@ def register_udfs(con: duckdb.DuckDBPyConnection) -> list[str]:
     )
     registered.append("agent_tools")
 
+    con.create_function(
+        "agent_run",
+        lambda agent_id, prompt, max_turns: udf_agent_run(
+            agent_id,
+            prompt,
+            max_turns,
+            con.cursor(),
+        ),
+        [str, str, int],
+        str,
+        null_handling="default",
+    )
+    registered.append("agent_run")
+
     # detect_injection(content) -> VARCHAR or NULL
     con.create_function(
         "detect_injection_udf",
@@ -583,10 +889,39 @@ def register_udfs(con: duckdb.DuckDBPyConnection) -> list[str]:
     )
     registered.append("getenv")
 
-    # Radio Pub/Sub UDFs (Windows-compatible, in-memory channels)
+    con.create_function(
+        "approval_request_create",
+        lambda session_id, tool_name, tool_params, reason: udf_create_approval_request(
+            session_id,
+            tool_name,
+            tool_params,
+            reason,
+            con.cursor(),
+        ),
+        [str, str, str, str],
+        str,
+        null_handling="default",
+    )
+    registered.append("approval_request_create")
+
+    con.create_function(
+        "approval_request_resolve",
+        lambda approval_id, decision, resolved_by: udf_resolve_approval_request(
+            approval_id,
+            decision,
+            resolved_by,
+            con.cursor(),
+        ),
+        [int, str, str],
+        str,
+        null_handling="default",
+    )
+    registered.append("approval_request_resolve")
+
+    # Radio Pub/Sub UDFs (DuckDB-backed persistent channels)
     con.create_function(
         "radio_subscribe",
-        udf_radio_subscribe,
+        lambda channel_name: udf_radio_subscribe(channel_name, con.cursor()),
         [str],
         str,
     )
@@ -594,7 +929,11 @@ def register_udfs(con: duckdb.DuckDBPyConnection) -> list[str]:
 
     con.create_function(
         "radio_transmit_message",
-        udf_radio_transmit_message,
+        lambda channel_name, message_json: udf_radio_transmit_message(
+            channel_name,
+            message_json,
+            con.cursor(),
+        ),
         [str, str],
         str,
     )
@@ -602,7 +941,7 @@ def register_udfs(con: duckdb.DuckDBPyConnection) -> list[str]:
 
     con.create_function(
         "radio_listen",
-        udf_radio_listen,
+        lambda channel_name, timeout_ms: udf_radio_listen(channel_name, timeout_ms, con.cursor()),
         [str, int],
         str,
         null_handling="default",
@@ -611,7 +950,7 @@ def register_udfs(con: duckdb.DuckDBPyConnection) -> list[str]:
 
     con.create_function(
         "radio_channel_list",
-        udf_radio_channel_list,
+        lambda: udf_radio_channel_list(con.cursor()),
         [],
         str,
     )

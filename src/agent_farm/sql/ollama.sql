@@ -1,6 +1,7 @@
 -- ollama.sql - Ollama and LLM integration macros
 
-CREATE OR REPLACE MACRO ollama_base() AS 'http://localhost:11434';
+CREATE OR REPLACE MACRO ollama_base() AS
+    COALESCE(getenv('OLLAMA_BASE_URL'), 'http://localhost:11434');
 
 CREATE OR REPLACE MACRO ollama_chat(model_name, prompt) AS (
     SELECT json_extract_string(

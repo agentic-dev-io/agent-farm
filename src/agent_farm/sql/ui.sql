@@ -57,8 +57,9 @@ CREATE TABLE IF NOT EXISTS user_profile (
 );
 
 CREATE TABLE IF NOT EXISTS pending_approvals (
-    id VARCHAR PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     session_id VARCHAR NOT NULL,
+    spec_id INTEGER,
     tool_name VARCHAR NOT NULL,
     tool_params JSON,
     reason VARCHAR,
@@ -1233,12 +1234,10 @@ CREATE OR REPLACE MACRO apply_model_selection(agent_id_param, instance_id_param)
 
 -- Resolve pending approval (from approval-flow app)
 CREATE OR REPLACE MACRO resolve_approval(approval_id_param, decision_param, resolved_by_param) AS (
-    SELECT json_object(
-        'action', 'resolve_approval',
-        'approval_id', approval_id_param,
-        'decision', decision_param,
-        'resolved_by', resolved_by_param,
-        'note', 'Approval resolution handled by Python runtime'
+    approval_request_resolve(
+        approval_id_param,
+        decision_param,
+        COALESCE(resolved_by_param, 'system')
     )
 );
 
@@ -1257,20 +1256,28 @@ CREATE OR REPLACE MACRO get_pending_approvals(session_id_param) AS (
 
 -- Create approval request and open UI
 CREATE OR REPLACE MACRO request_tool_approval(session_id_param, agent_id_param, tool_name_param, tool_params_param, reason_param) AS (
-    SELECT open_approval_ui(
-        session_id_param,
-        'Genehmigung erforderlich: ' || tool_name_param,
-        reason_param,
-        json_array(
-            json_object('label', 'Tool', 'value', tool_name_param),
-            json_object('label', 'Agent', 'value', agent_id_param),
-            json_object('label', 'Session', 'value', session_id_param)
-        ),
-        CASE
-            WHEN tool_name_param IN ('shell_run', 'fs_delete', 'deploy_service') THEN 80
-            WHEN tool_name_param IN ('fs_write', 'rollback_service') THEN 50
-            ELSE 30
-        END
+    SELECT json_object(
+        'approval', json(approval_request_create(
+            session_id_param,
+            tool_name_param,
+            tool_params_param,
+            reason_param
+        )),
+        'ui', json(open_approval_ui(
+            session_id_param,
+            'Genehmigung erforderlich: ' || tool_name_param,
+            reason_param,
+            json_array(
+                json_object('label', 'Tool', 'value', tool_name_param),
+                json_object('label', 'Agent', 'value', agent_id_param),
+                json_object('label', 'Session', 'value', session_id_param)
+            ),
+            CASE
+                WHEN tool_name_param IN ('shell_run', 'fs_delete', 'deploy_service') THEN 80
+                WHEN tool_name_param IN ('fs_write', 'rollback_service') THEN 50
+                ELSE 30
+            END
+        ))
     )
 );
 

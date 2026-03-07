@@ -6,7 +6,7 @@
 
 -- SearXNG endpoint (configurable)
 CREATE OR REPLACE MACRO searxng_endpoint() AS
-    COALESCE(getenv('SEARXNG_URL'), 'http://searxng:8080');
+    COALESCE(getenv('SEARXNG_BASE_URL'), 'http://searxng:8080');
 
 -- SearXNG search
 CREATE OR REPLACE MACRO searxng_search(query, categories) AS (
@@ -278,11 +278,12 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
             )
         -- Requires approval
         WHEN json_extract(policy_check.policy, '$.requires_approval')::BOOLEAN
-            THEN json_object(
-                'status', 'approval_required',
-                'tool', tool_name_param,
-                'params', tool_params,
-                'org', org_id_param
+            THEN request_tool_approval(
+                session_id_param,
+                org_id_param,
+                tool_name_param,
+                tool_params,
+                'This tool requires approval'
             )
 
         -- =========================================

@@ -1,9 +1,11 @@
 import subprocess
 import time
+from pathlib import Path
 
 
 def test_server_startup():
     print("Starting server process...")
+    project_root = Path(__file__).resolve().parents[1]
     # Using uv run to ensure dependencies are present
     process = subprocess.Popen(
         ["uv", "run", "src/agent_farm/main.py"],
@@ -11,7 +13,7 @@ def test_server_startup():
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
-        cwd="d:/farmer_agent",
+        cwd=project_root,
     )
 
     # Wait for startup (downloads can take time)

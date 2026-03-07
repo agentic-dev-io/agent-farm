@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Test script for DuckDB macros"""
 
+import json
 import os
 import sys
 
@@ -172,6 +173,92 @@ def test_macros():
     print("=" * 50)
 
     assert failed == 0, f"{failed} macro tests failed"
+
+
+def test_init_farm_bootstrap_smoke():
+    from agent_farm.cli import init_farm
+
+    con, engine, _ = init_farm(":memory:", quiet=True)
+    columns = {row[0] for row in con.execute("DESCRIBE agent_sessions").fetchall()}
+
+    assert engine.is_initialized() is True
+    assert {"agent_id", "context", "messages"}.issubset(columns)
+
+
+def test_ollama_base_uses_env(monkeypatch):
+    from agent_farm.cli import init_farm
+
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://example.test:1234")
+    con, _, _ = init_farm(":memory:", quiet=True)
+
+    assert con.execute("SELECT ollama_base()").fetchone()[0] == "http://example.test:1234"
+
+
+def test_agent_run_udf_is_registered():
+    from agent_farm.cli import init_farm
+
+    con, _, _ = init_farm(":memory:", quiet=True)
+    result = con.execute("SELECT agent_run('missing-agent', 'hello', 1)").fetchone()[0]
+
+    assert "missing-agent" in result
+
+
+def test_approval_request_lifecycle():
+    from agent_farm.cli import init_farm
+
+    con, _, _ = init_farm(":memory:", quiet=True)
+    created = con.execute(
+        """
+        SELECT request_approval(
+            'sess-approval',
+            'shell_run',
+            '{"cmd":"rm -rf /"}',
+            'dangerous command'
+        )
+        """
+    ).fetchone()[0]
+    created_json = json.loads(created)
+    approval_id = created_json["approval_id"]
+
+    stored = con.execute(
+        "SELECT status, tool_name FROM pending_approvals WHERE id = ?",
+        [approval_id],
+    ).fetchone()
+    assert stored == ("pending", "shell_run")
+
+    resolved = con.execute(
+        "SELECT resolve_approval(?, 'approved', 'pytest')",
+        [approval_id],
+    ).fetchone()[0]
+    resolved_json = json.loads(resolved)
+    assert resolved_json["status"] == "approved"
+
+    final_row = con.execute(
+        "SELECT status, decision, resolved_by FROM pending_approvals WHERE id = ?",
+        [approval_id],
+    ).fetchone()
+    assert final_row == ("approved", "approved", "pytest")
+
+
+def test_radio_messages_persist_across_restart(tmp_path):
+    from agent_farm.cli import init_farm
+
+    db_path = tmp_path / "radio-test.duckdb"
+
+    con, _, _ = init_farm(str(db_path), quiet=True)
+    published = con.execute(
+        "SELECT radio_transmit_message('builds', '{\"state\":\"queued\"}')"
+    ).fetchone()[0]
+    assert json.loads(published)["published"] is True
+    con.close()
+
+    con, _, _ = init_farm(str(db_path), quiet=True)
+    listened = con.execute("SELECT radio_listen('builds', 10)").fetchone()[0]
+    listened_json = json.loads(listened)
+    assert listened_json["payload"]["state"] == "queued"
+
+    empty = con.execute("SELECT radio_listen('builds', 10)").fetchone()[0]
+    assert json.loads(empty)["no_message"] is True
 
 
 if __name__ == "__main__":

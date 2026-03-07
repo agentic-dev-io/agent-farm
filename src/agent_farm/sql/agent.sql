@@ -219,13 +219,11 @@ CREATE OR REPLACE MACRO requires_approval(agent_id_param, tool_name, tool_params
 );
 
 CREATE OR REPLACE MACRO request_approval(session_id_param, tool_name, tool_params, reason) AS (
-    SELECT json_object(
-        'action', 'request_approval',
-        'session_id', session_id_param,
-        'tool_name', tool_name,
-        'reason', reason,
-        'status', 'approval_required',
-        'note', 'Approval requests handled by Python runtime'
+    approval_request_create(
+        session_id_param,
+        tool_name,
+        tool_params,
+        reason
     )
 );
 
