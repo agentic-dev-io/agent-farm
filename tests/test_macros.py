@@ -259,5 +259,37 @@ def test_radio_messages_persist_across_restart(tmp_path):
     assert json.loads(empty)["no_message"] is True
 
 
+def test_bootstrap_db_and_init_farm_parity():
+    """bootstrap_db and cli.init_farm must produce identical runtime state."""
+    from agent_farm.cli import init_farm
+    from agent_farm.main import bootstrap_db
+
+    con_main = bootstrap_db(":memory:")
+    con_cli, engine_cli, _ = init_farm(":memory:", quiet=True)
+
+    def table_set(con) -> set:
+        return {r[0] for r in con.execute("SHOW TABLES").fetchall()}
+
+    def macro_count(con) -> int:
+        return con.execute("SELECT COUNT(*) FROM spec_objects WHERE kind = 'macro'").fetchone()[0]
+
+    main_tables = table_set(con_main)
+    cli_tables = table_set(con_cli)
+
+    # Core runtime tables must be present in both
+    required = {"agent_sessions", "audit_log", "pending_approvals", "radio_messages", "spec_objects"}
+    assert required.issubset(main_tables), f"main missing: {required - main_tables}"
+    assert required.issubset(cli_tables), f"cli missing: {required - cli_tables}"
+
+    # Both should seed an identical number of macros
+    assert macro_count(con_main) == macro_count(con_cli), (
+        f"macro count mismatch: main={macro_count(con_main)} cli={macro_count(con_cli)}"
+    )
+    assert macro_count(con_main) > 0, "no macros seeded"
+
+    # Spec Engine must be initialized in both
+    assert engine_cli.is_initialized() is True
+
+
 if __name__ == "__main__":
     sys.exit(0 if test_macros() else 1)

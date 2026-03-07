@@ -4,9 +4,11 @@
 -- ANTHROPIC API COMPATIBILITY
 -- =============================================================================
 
+-- Anthropic API base URL (overrideable via ANTHROPIC_BASE_URL env var)
 CREATE OR REPLACE MACRO anthropic_base() AS
     COALESCE(getenv('ANTHROPIC_BASE_URL'), 'https://api.anthropic.com');
 
+-- Anthropic Messages API: send messages and return raw response body
 CREATE OR REPLACE MACRO anthropic_chat(model_name, messages_json, max_tokens) AS (
     SELECT http_post(
         anthropic_base() || '/v1/messages',
@@ -23,6 +25,7 @@ CREATE OR REPLACE MACRO anthropic_chat(model_name, messages_json, max_tokens) AS
     ).body
 );
 
+-- Anthropic Messages API with tool definitions for function-calling
 CREATE OR REPLACE MACRO anthropic_chat_tools(model_name, messages_json, tools_json, max_tokens) AS (
     SELECT http_post(
         anthropic_base() || '/v1/messages',
@@ -62,6 +65,7 @@ CREATE OR REPLACE MACRO model_call(agent_id_param, user_prompt, tools_json) AS (
 -- AGENT SYSTEM PROMPT
 -- =============================================================================
 
+-- Build a system prompt string from agent config, workspaces, and security policy
 CREATE OR REPLACE MACRO agent_system_prompt(agent_id_param) AS (
     SELECT
         'You are ' || name || ', a ' || role || ' assistant.' || chr(10) ||
@@ -78,6 +82,7 @@ CREATE OR REPLACE MACRO agent_system_prompt(agent_id_param) AS (
     FROM agent_config WHERE id = agent_id_param
 );
 
+-- Full secure agent invocation: inject system prompt, run model, return response body
 CREATE OR REPLACE MACRO secure_agent_call(agent_id_param, model_name, user_prompt, tools_json) AS (
     SELECT agent_call(
         model_name,
@@ -91,7 +96,7 @@ CREATE OR REPLACE MACRO secure_agent_call(agent_id_param, model_name, user_promp
 -- TOOL SCHEMAS
 -- =============================================================================
 
--- Legacy schema (without fs_write)
+-- JSON tool schema for LLM function-calling: fs_read, fs_list, shell_run
 CREATE OR REPLACE MACRO local_tools_schema() AS (
     SELECT json_array(
         json_object(
@@ -146,6 +151,7 @@ CREATE OR REPLACE MACRO local_tools_schema() AS (
 );
 
 -- Full agent tools schema including fs_write and task_complete
+-- Full agent tool schema including fs_read, fs_write, fs_list, shell_run, web_search
 CREATE OR REPLACE MACRO agent_tools_schema() AS (
     SELECT json_array(
         json_object(
@@ -264,6 +270,7 @@ CREATE OR REPLACE MACRO execute_tool_safe(agent_id_param, session_id_param, tool
     END
 );
 
+-- Process a single tool_call object: dispatch to execute_tool_safe and return result
 CREATE OR REPLACE MACRO process_tool_call(agent_id_param, session_id_param, tool_call_json) AS (
     WITH tool_info AS (
         SELECT
@@ -279,6 +286,7 @@ CREATE OR REPLACE MACRO process_tool_call(agent_id_param, session_id_param, tool
 -- =============================================================================
 
 -- Execute one step of agent loop
+-- Single agent reasoning step: call model, handle tool calls, return updated messages JSON
 CREATE OR REPLACE MACRO agent_step(agent_id_param, session_id_param, messages_json) AS (
     WITH model_response AS (
         SELECT CASE

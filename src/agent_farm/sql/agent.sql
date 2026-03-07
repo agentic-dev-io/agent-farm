@@ -78,6 +78,7 @@ CREATE OR REPLACE MACRO is_allowed_domain(agent_id_param, domain) AS (
 -- AUDIT LOGGING
 -- =============================================================================
 
+-- Record a tool call in the audit log (delegated to Python runtime)
 CREATE OR REPLACE MACRO log_tool_call(session_id_param, tool_name_param, params_json, result_json, decision_param) AS (
     SELECT json_object(
         'action', 'log_tool_call',
@@ -88,6 +89,7 @@ CREATE OR REPLACE MACRO log_tool_call(session_id_param, tool_name_param, params_
     )
 );
 
+-- Record a security policy violation in the audit log
 CREATE OR REPLACE MACRO log_violation(session_id_param, tool_name_param, violations_array) AS (
     SELECT json_object(
         'action', 'log_violation',
@@ -98,6 +100,7 @@ CREATE OR REPLACE MACRO log_violation(session_id_param, tool_name_param, violati
     )
 );
 
+-- Retrieve recent audit log entries for a session
 CREATE OR REPLACE MACRO recent_audit(session_id_param, limit_n) AS TABLE
     SELECT * FROM audit_log
     WHERE session_id = session_id_param
@@ -108,6 +111,7 @@ CREATE OR REPLACE MACRO recent_audit(session_id_param, limit_n) AS TABLE
 -- SECURE FILE OPERATIONS
 -- =============================================================================
 
+-- Read a file with workspace path and sensitivity checks
 CREATE OR REPLACE MACRO secure_read(agent_id_param, file_path) AS (
     CASE
         WHEN NOT is_allowed_path(agent_id_param, file_path)
@@ -118,6 +122,7 @@ CREATE OR REPLACE MACRO secure_read(agent_id_param, file_path) AS (
     END
 );
 
+-- List a directory with workspace boundary enforcement
 CREATE OR REPLACE MACRO secure_ls(agent_id_param, dir_path) AS (
     CASE
         WHEN NOT is_allowed_path(agent_id_param, dir_path)
@@ -126,6 +131,7 @@ CREATE OR REPLACE MACRO secure_ls(agent_id_param, dir_path) AS (
     END
 );
 
+-- Execute a shell command with allow/block list enforcement
 CREATE OR REPLACE MACRO secure_shell(agent_id_param, cmd) AS (
     CASE
         WHEN NOT is_shell_enabled(agent_id_param)
@@ -136,6 +142,7 @@ CREATE OR REPLACE MACRO secure_shell(agent_id_param, cmd) AS (
     END
 );
 
+-- Check if an agent has write permission for a given file path
 CREATE OR REPLACE MACRO can_write_to_workspace(agent_id_param, file_path) AS (
     SELECT COALESCE(
         (SELECT mode IN ('writer', 'operator')
@@ -147,6 +154,7 @@ CREATE OR REPLACE MACRO can_write_to_workspace(agent_id_param, file_path) AS (
     )
 );
 
+-- Write to a file with workspace, sensitivity, and permission checks
 CREATE OR REPLACE MACRO secure_write(agent_id_param, file_path, content) AS (
     CASE
         WHEN NOT is_allowed_path(agent_id_param, file_path)
@@ -163,6 +171,7 @@ CREATE OR REPLACE MACRO secure_write(agent_id_param, file_path, content) AS (
 -- AGENT CONFIG HELPERS
 -- =============================================================================
 
+-- Create a new agent config entry (returns JSON intent, handled by Python runtime)
 CREATE OR REPLACE MACRO create_agent(agent_id_param, agent_name, agent_role, sec_profile) AS (
     SELECT json_object(
         'action', 'create_agent',
@@ -174,6 +183,7 @@ CREATE OR REPLACE MACRO create_agent(agent_id_param, agent_name, agent_role, sec
     )
 );
 
+-- Register a workspace path for an agent with a read/write/operator mode
 CREATE OR REPLACE MACRO add_workspace(ws_id, agent_id_param, ws_path, ws_name, ws_mode) AS (
     SELECT json_object(
         'action', 'add_workspace',
@@ -186,6 +196,7 @@ CREATE OR REPLACE MACRO add_workspace(ws_id, agent_id_param, ws_path, ws_name, w
     )
 );
 
+-- Initialize the security policy for an agent (shell on/off, command allow/block lists)
 CREATE OR REPLACE MACRO init_security_policy(agent_id_param, shell_on, allowlist, blocklist) AS (
     SELECT json_object(
         'action', 'init_security_policy',
@@ -195,6 +206,7 @@ CREATE OR REPLACE MACRO init_security_policy(agent_id_param, shell_on, allowlist
     )
 );
 
+-- Return full agent config as JSON: agent record, workspaces, security policy, MCP servers
 CREATE OR REPLACE MACRO get_agent_config(agent_id_param) AS (
     SELECT json_object(
         'agent', (SELECT to_json(a) FROM agent_config a WHERE id = agent_id_param),
@@ -208,6 +220,7 @@ CREATE OR REPLACE MACRO get_agent_config(agent_id_param) AS (
 -- APPROVAL FLOW (SR-6.5)
 -- =============================================================================
 
+-- Determine if a tool call requires human approval based on policy
 CREATE OR REPLACE MACRO requires_approval(agent_id_param, tool_name, tool_params) AS (
     SELECT CASE
         WHEN tool_name = 'shell_run' THEN TRUE
@@ -218,6 +231,7 @@ CREATE OR REPLACE MACRO requires_approval(agent_id_param, tool_name, tool_params
     END
 );
 
+-- Create a persistent approval request in pending_approvals via Python UDF
 CREATE OR REPLACE MACRO request_approval(session_id_param, tool_name, tool_params, reason) AS (
     approval_request_create(
         session_id_param,
@@ -231,6 +245,7 @@ CREATE OR REPLACE MACRO request_approval(session_id_param, tool_name, tool_param
 -- PROMPT INJECTION DETECTION (SR-7, SR-8)
 -- =============================================================================
 
+-- Detect common prompt injection patterns, returns injection type or NULL
 CREATE OR REPLACE MACRO detect_injection(content) AS (
     SELECT CASE
         WHEN lower(content) LIKE '%ignore%previous%instruction%' THEN 'instruction_override'
@@ -250,6 +265,7 @@ CREATE OR REPLACE MACRO detect_injection(content) AS (
     END
 );
 
+-- Read file contents with workspace boundary and injection detection
 CREATE OR REPLACE MACRO safe_read_content(agent_id_param, file_path) AS (
     SELECT CASE
         WHEN NOT is_allowed_path(agent_id_param, file_path)

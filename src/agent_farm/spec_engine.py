@@ -442,31 +442,55 @@ class SpecEngine:
 
         return spec
 
-    def spec_search(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    def spec_search(
+        self, query: str, kind: str | None = None, limit: int = 20
+    ) -> list[dict[str, Any]]:
         """
         Search specs by query string.
 
+        Splits multi-word queries so all words must match (AND logic), making
+        'web search' find ddg_instant, brave_search etc. even when the words
+        are not adjacent in the summary.
+
         Args:
             query: Search query (searches name, summary, and docs)
+            kind: Optional kind filter (e.g. 'macro', 'agent', 'skill')
             limit: Maximum number of results
 
         Returns:
             List of matching specs
         """
-        search_query = """
+        words = [w.strip() for w in query.lower().split() if w.strip()]
+        if not words:
+            return []
+
+        # Build AND condition: every word must appear in name OR summary OR doc
+        word_clauses = " AND ".join(
+            f"(LOWER(o.name) LIKE '%' || ? || '%' "
+            f"OR LOWER(o.summary) LIKE '%' || ? || '%' "
+            f"OR LOWER(COALESCE(d.doc,'')) LIKE '%' || ? || '%')"
+            for _ in words
+        )
+        kind_clause = "AND o.kind = ?" if kind else ""
+        search_query = f"""
             SELECT DISTINCT o.id, o.kind, o.name, o.version, o.status, o.summary
             FROM spec_objects o
             LEFT JOIN spec_docs d ON d.object_id = o.id
-            WHERE LOWER(o.name) LIKE '%' || LOWER(?) || '%'
-               OR LOWER(o.summary) LIKE '%' || LOWER(?) || '%'
-               OR LOWER(d.doc) LIKE '%' || LOWER(?) || '%'
+            WHERE {word_clauses}
+            {kind_clause}
             ORDER BY
-                CASE WHEN LOWER(o.name) LIKE LOWER(?) || '%' THEN 0 ELSE 1 END,
+                CASE WHEN LOWER(o.name) LIKE ? || '%' THEN 0 ELSE 1 END,
                 o.kind, o.name
             LIMIT ?
         """
-        result = self.con.execute(search_query, [query, query, query, query, limit]).fetchall()
+        params = []
+        for w in words:
+            params.extend([w, w, w])
+        if kind:
+            params.append(kind)
+        params.extend([words[0], limit])
 
+        result = self.con.execute(search_query, params).fetchall()
         columns = ["id", "kind", "name", "version", "status", "summary"]
         return [dict(zip(columns, row)) for row in result]
 

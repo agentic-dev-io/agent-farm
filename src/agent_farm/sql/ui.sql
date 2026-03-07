@@ -869,6 +869,7 @@ CREATE OR REPLACE MACRO get_app_html(instance_id_param) AS (
 -- STUDIO ORG APP TOOLS
 -- =============================================================================
 
+-- Open a Studio design-choices app for the user to pick from options
 CREATE OR REPLACE MACRO studio_present_choices(session_id_param, title, description, options_json) AS (
     SELECT open_app(
         'app.studio.design-choices',
@@ -877,6 +878,7 @@ CREATE OR REPLACE MACRO studio_present_choices(session_id_param, title, descript
     )
 );
 
+-- Commit the user's selected design choice with rationale
 CREATE OR REPLACE MACRO studio_commit_choice(instance_id_param, selected_id, rationale) AS (
     SELECT json_object(
         'action', 'studio_commit_choice',
@@ -887,10 +889,12 @@ CREATE OR REPLACE MACRO studio_commit_choice(instance_id_param, selected_id, rat
     )
 );
 
+-- Display a document (markdown/html/text) in the Studio document viewer
 CREATE OR REPLACE MACRO studio_view_document(session_id_param, content, format) AS (
     SELECT open_app('app.studio.document', session_id_param, json_object('content', content, 'format', COALESCE(format, 'markdown')))
 );
 
+-- Display a chart (bar/line/pie) in the Studio chart viewer
 CREATE OR REPLACE MACRO studio_view_chart(session_id_param, chart_type, data_json, title) AS (
     SELECT open_app('app.studio.chart', session_id_param, json_object('chart_type', chart_type, 'data', json(data_json), 'title', title))
 );
@@ -899,15 +903,18 @@ CREATE OR REPLACE MACRO studio_view_chart(session_id_param, chart_type, data_jso
 -- ONBOARDING TOOLS
 -- =============================================================================
 
+-- Return all onboarding profiles as a JSON array
 CREATE OR REPLACE MACRO list_profiles() AS (
     SELECT json_group_array(json_object('id', id, 'name', name, 'description', description, 'focus', focus, 'icon', icon))
     FROM onboarding_profiles
 );
 
+-- Open the onboarding profile-selection app for the current session
 CREATE OR REPLACE MACRO onboarding_select_profile(session_id_param) AS (
     SELECT open_app('app.onboarding.profile-choices', session_id_param, json_object('profiles', (SELECT list_profiles())))
 );
 
+-- Persist a user's selected onboarding profile
 CREATE OR REPLACE MACRO onboarding_commit_profile(user_id_param, profile_id_param) AS (
     SELECT json_object(
         'action', 'onboarding_commit_profile',
@@ -918,6 +925,7 @@ CREATE OR REPLACE MACRO onboarding_commit_profile(user_id_param, profile_id_para
     )
 );
 
+-- Return a user's current profile and custom settings as JSON
 CREATE OR REPLACE MACRO get_user_profile(user_id_param) AS (
     SELECT json_object(
         'profile_id', up.profile_id,
@@ -933,6 +941,7 @@ CREATE OR REPLACE MACRO get_user_profile(user_id_param) AS (
 -- SETTINGS TOOLS
 -- =============================================================================
 
+-- Open the settings app showing current profile, available profiles, and orgs
 CREATE OR REPLACE MACRO open_settings(session_id_param, user_id_param) AS (
     SELECT open_app('app.settings', session_id_param, json_object(
         'current_profile', get_user_profile(user_id_param),
@@ -941,6 +950,7 @@ CREATE OR REPLACE MACRO open_settings(session_id_param, user_id_param) AS (
     ))
 );
 
+-- Save user settings (delegated to Python runtime)
 CREATE OR REPLACE MACRO save_settings(user_id_param, settings_json) AS (
     SELECT json_object(
         'action', 'save_settings',
@@ -954,6 +964,7 @@ CREATE OR REPLACE MACRO save_settings(user_id_param, settings_json) AS (
 -- TOOL SCHEMA FOR AGENTS
 -- =============================================================================
 
+-- Tool schema for Studio org agent: present_design_choices, view_document, view_chart
 CREATE OR REPLACE MACRO studio_org_apps_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
@@ -985,6 +996,7 @@ CREATE OR REPLACE MACRO studio_org_apps_tools_schema() AS (
     )
 );
 
+-- Dispatch a Studio app tool call to the appropriate open_app macro
 CREATE OR REPLACE MACRO execute_studio_app_tool(session_id_param, tool_name, tool_params) AS (
     SELECT CASE tool_name
         WHEN 'present_design_choices' THEN studio_present_choices(
@@ -1012,6 +1024,7 @@ CREATE OR REPLACE MACRO execute_studio_app_tool(session_id_param, tool_name, too
 -- VIBE CODER TOOLS (DevOrg)
 -- =============================================================================
 
+-- Open the Vibe Coder app with context, existing code, and a generation prompt
 CREATE OR REPLACE MACRO dev_open_vibe_coder(session_id_param, context_array, code, prompt) AS (
     SELECT open_app('app.dev.vibe-coder', session_id_param, json_object(
         'context', json(context_array),
@@ -1021,6 +1034,7 @@ CREATE OR REPLACE MACRO dev_open_vibe_coder(session_id_param, context_array, cod
     ))
 );
 
+-- Generate code in Vibe Coder (mode: create/edit/test) with file context
 CREATE OR REPLACE MACRO dev_vibe_generate(session_id_param, mode, prompt, files_json) AS (
     SELECT open_app('app.dev.vibe-coder', session_id_param, json_object(
         'mode', mode,
@@ -1034,6 +1048,7 @@ CREATE OR REPLACE MACRO dev_vibe_generate(session_id_param, mode, prompt, files_
 -- SOLID DOCS TOOLS (StudioOrg)
 -- =============================================================================
 
+-- Open the Solid Docs app to draft or view documentation
 CREATE OR REPLACE MACRO studio_open_docs(session_id_param, doc_type, content, target) AS (
     SELECT open_app('app.studio.solid-docs', session_id_param, json_object(
         'type', doc_type,
@@ -1043,6 +1058,7 @@ CREATE OR REPLACE MACRO studio_open_docs(session_id_param, doc_type, content, ta
     ))
 );
 
+-- Generate a README.md for a project using Solid Docs
 CREATE OR REPLACE MACRO studio_generate_readme(session_id_param, project_info) AS (
     SELECT open_app('app.studio.solid-docs', session_id_param, json_object(
         'type', 'readme',
@@ -1057,6 +1073,7 @@ CREATE OR REPLACE MACRO studio_generate_readme(session_id_param, project_info) A
 -- TERMINAL TOOLS (OpsOrg)
 -- =============================================================================
 
+-- Open an interactive terminal app panel for the Ops org
 CREATE OR REPLACE MACRO ops_open_terminal(session_id_param, cwd, output_lines) AS (
     SELECT open_app('app.ops.terminal', session_id_param, json_object(
         'cwd', cwd,
@@ -1068,6 +1085,7 @@ CREATE OR REPLACE MACRO ops_open_terminal(session_id_param, cwd, output_lines) A
 -- APPROVAL FLOW TOOLS (Cross-Org)
 -- =============================================================================
 
+-- Open the approval UI panel with risk indicator (0-100) for a pending request
 CREATE OR REPLACE MACRO open_approval_ui(session_id_param, title, description, details_json, risk_percent) AS (
     SELECT open_app('app.approval', session_id_param, json_object(
         'title', title,
@@ -1091,6 +1109,7 @@ CREATE OR REPLACE MACRO open_approval_ui(session_id_param, title, description, d
 -- EXTENDED TOOL SCHEMAS
 -- =============================================================================
 
+-- Tool schema for Dev org agent: open_vibe_coder, vibe_generate
 CREATE OR REPLACE MACRO dev_org_apps_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
@@ -1114,6 +1133,7 @@ CREATE OR REPLACE MACRO dev_org_apps_tools_schema() AS (
     )
 );
 
+-- Tool schema for Ops org agent: open_terminal
 CREATE OR REPLACE MACRO ops_org_apps_tools_schema() AS (
     SELECT json_array(
         json_object('type', 'function', 'function', json_object(
@@ -1131,6 +1151,7 @@ CREATE OR REPLACE MACRO ops_org_apps_tools_schema() AS (
 -- MODEL SELECTOR TOOLS (Cross-Org)
 -- =============================================================================
 
+-- Open the LLM model selector app with available models and token balance
 CREATE OR REPLACE MACRO open_model_selector(session_id_param, models_json, balance) AS (
     SELECT open_app('app.model-selector', session_id_param, json_object(
         'models', json(models_json),
@@ -1176,6 +1197,7 @@ CREATE OR REPLACE MACRO select_llm_model(session_id_param) AS (
 -- IMMERSIVE PREVIEW TOOLS (StudioOrg)
 -- =============================================================================
 
+-- Open an immersive preview panel (image, video, 3D) with toolbar options
 CREATE OR REPLACE MACRO studio_open_preview(session_id_param, preview_type, preview_url, options_json) AS (
     SELECT open_app('app.immersive', session_id_param, json_object(
         'preview_type', preview_type,
@@ -1185,6 +1207,7 @@ CREATE OR REPLACE MACRO studio_open_preview(session_id_param, preview_type, prev
     ))
 );
 
+-- Open an image preview with generation controls (model, ratio, count, quality)
 CREATE OR REPLACE MACRO studio_image_preview(session_id_param, image_url, prompt_hint) AS (
     SELECT open_app('app.immersive', session_id_param, json_object(
         'preview_type', 'image',

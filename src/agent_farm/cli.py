@@ -270,13 +270,14 @@ def spec_get(
 @spec_app.command("search")
 def spec_search(
     query: Annotated[str, typer.Argument(help="Search query.")],
+    kind: Annotated[Optional[str], typer.Option("--kind", help="Filter by kind (e.g. macro, agent, skill).")] = None,
     limit: Annotated[int, typer.Option(help="Max results.")] = 20,
     db: Annotated[str, typer.Option("--db", help="DuckDB database path.")] = "",
 ):
     """Search specs by name, summary, or docs."""
     db = db or _db_option()
     _, engine, _ = init_farm(db, quiet=True)
-    specs = engine.spec_search(query=query, limit=limit)
+    specs = engine.spec_search(query=query, kind=kind, limit=limit)
 
     if not specs:
         out.print("[dim]No results.[/dim]")
