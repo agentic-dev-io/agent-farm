@@ -20,6 +20,11 @@ dev = [
     { name = "ruff" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "radon" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.1.0" },
@@ -31,6 +36,9 @@ requires-dist = [
     { name = "typer", specifier = ">=0.24.1" },
 ]
 provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "radon", specifier = ">=6.0.1" }]
 
 [[package]]
 name = "annotated-doc"
