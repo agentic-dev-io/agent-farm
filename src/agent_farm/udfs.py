@@ -422,8 +422,6 @@ Only access files within these paths. Use task_complete when done."""
             },
         },
     ]
-    tools_json = json.dumps(tools)
-
     trace = []
     final_result = None
     messages = [{"role": "user", "content": prompt}]
