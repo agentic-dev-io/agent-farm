@@ -9,6 +9,7 @@
 [![MCP](https://img.shields.io/badge/MCP-Protocol-green.svg)](https://modelcontextprotocol.io)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-blue.svg)](https://www.docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/agentic-dev-io/agent-farm)
 
 [![CI](https://github.com/agentic-dev-io/agent-farm/workflows/CI/badge.svg)](https://github.com/agentic-dev-io/agent-farm/actions/workflows/ci.yml)
 
