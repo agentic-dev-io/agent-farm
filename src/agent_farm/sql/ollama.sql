@@ -4,36 +4,7 @@
 CREATE OR REPLACE MACRO ollama_base() AS
     COALESCE(getenv('OLLAMA_BASE_URL'), 'http://localhost:11434');
 
--- Send a single prompt to an Ollama model and return the response text
-CREATE OR REPLACE MACRO ollama_chat(model_name, prompt) AS (
-    SELECT json_extract_string(
-        http_post(
-            ollama_base() || '/api/generate',
-            headers := MAP {'Content-Type': 'application/json'},
-            body := json_object(
-                'model', model_name,
-                'prompt', prompt,
-                'stream', false
-            )
-        ).body,
-        '$.response'
-    )
-);
-
--- Send a chat messages array (JSON) to an Ollama model and return raw response body
-CREATE OR REPLACE MACRO ollama_chat_messages(model_name, messages_json) AS (
-    SELECT http_post(
-        ollama_base() || '/api/chat',
-        headers := MAP {'Content-Type': 'application/json'},
-        body := json_object(
-            'model', model_name,
-            'messages', json(messages_json),
-            'stream', false
-        )
-    ).body
-);
-
--- Ollama chat with tool definitions for function-calling support
+-- Ollama chat with tool definitions (only path; use empty json_array() for no tools)
 CREATE OR REPLACE MACRO ollama_chat_with_tools(model_name, messages_json, tools_json) AS (
     SELECT http_post(
         ollama_base() || '/api/chat',
@@ -72,34 +43,21 @@ CREATE OR REPLACE MACRO ollama_embed(model_name, text_input) AS (
     )::FLOAT[]
 );
 
--- DeepSeek v3 LLM via Ollama cloud
-CREATE OR REPLACE MACRO deepseek(prompt) AS ollama_chat('deepseek-v3.2:cloud', prompt);
--- Kimi K2 LLM via Ollama cloud
-CREATE OR REPLACE MACRO kimi(prompt) AS ollama_chat('kimi-k2.5:cloud', prompt);
--- Kimi K2 extended-thinking LLM via Ollama cloud
-CREATE OR REPLACE MACRO kimi_think(prompt) AS ollama_chat('kimi-k2-thinking:cloud', prompt);
--- Gemini 3 Pro Preview via Ollama cloud
-CREATE OR REPLACE MACRO gemini(prompt) AS ollama_chat('gemini-3-pro-preview:latest', prompt);
--- Gemini 3 Flash Preview (faster/cheaper) via Ollama cloud
-CREATE OR REPLACE MACRO gemini_flash(prompt) AS ollama_chat('gemini-3-flash-preview:latest', prompt);
--- Qwen3 Coder — coding-focused model via Ollama cloud
-CREATE OR REPLACE MACRO qwen3_coder(prompt) AS ollama_chat('qwen3-coder-next:cloud', prompt);
--- Qwen3 VL multimodal (vision-language) via Ollama cloud
-CREATE OR REPLACE MACRO qwen3_vl(prompt) AS ollama_chat('qwen3-vl:235b-cloud', prompt);
--- Qwen 3.5 general-purpose LLM via Ollama cloud
-CREATE OR REPLACE MACRO qwen(prompt) AS ollama_chat('qwen3.5:cloud', prompt);
--- GLM-5 LLM via Ollama cloud
-CREATE OR REPLACE MACRO glm(prompt) AS ollama_chat('glm-5:cloud', prompt);
--- MiniMax M2.5 LLM via Ollama cloud
-CREATE OR REPLACE MACRO minimax(prompt) AS ollama_chat('minimax-m2.5:cloud', prompt);
--- GPT OSS 120B large model via Ollama cloud
-CREATE OR REPLACE MACRO gpt_oss(prompt) AS ollama_chat('gpt-oss:120b-cloud', prompt);
--- GPT OSS 20B fast model via Ollama cloud
-CREATE OR REPLACE MACRO gpt_oss_small(prompt) AS ollama_chat('gpt-oss:20b-cloud', prompt);
--- GPT-5.3 Codex coding model via Ollama
-CREATE OR REPLACE MACRO gpt_codex(prompt) AS ollama_chat('gpt-5.3-codex:latest', prompt);
--- Devstral 2 code agent model via Ollama cloud
-CREATE OR REPLACE MACRO devstral(prompt) AS ollama_chat('devstral-2:123b-cloud', prompt);
+-- Model shortcuts: single prompt via chat-with-tools (empty tools), return text
+CREATE OR REPLACE MACRO deepseek(prompt) AS extract_response(ollama_chat_with_tools('deepseek-v3.2:cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO kimi(prompt) AS extract_response(ollama_chat_with_tools('kimi-k2.5:cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO kimi_think(prompt) AS extract_response(ollama_chat_with_tools('kimi-k2-thinking:cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO gemini(prompt) AS extract_response(ollama_chat_with_tools('gemini-3-pro-preview:latest', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO gemini_flash(prompt) AS extract_response(ollama_chat_with_tools('gemini-3-flash-preview:latest', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO qwen3_coder(prompt) AS extract_response(ollama_chat_with_tools('qwen3-coder-next:cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO qwen3_vl(prompt) AS extract_response(ollama_chat_with_tools('qwen3-vl:235b-cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO qwen(prompt) AS extract_response(ollama_chat_with_tools('qwen3.5:cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO glm(prompt) AS extract_response(ollama_chat_with_tools('glm-5:cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO minimax(prompt) AS extract_response(ollama_chat_with_tools('minimax-m2.5:cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO gpt_oss(prompt) AS extract_response(ollama_chat_with_tools('gpt-oss:120b-cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO gpt_oss_small(prompt) AS extract_response(ollama_chat_with_tools('gpt-oss:20b-cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO gpt_codex(prompt) AS extract_response(ollama_chat_with_tools('gpt-5.3-codex:latest', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
+CREATE OR REPLACE MACRO devstral(prompt) AS extract_response(ollama_chat_with_tools('devstral-2:123b-cloud', json_array(json_object('role', 'user', 'content', prompt)), json_array()));
 
 -- Single-turn agent call: build system+user messages and invoke model with tools
 CREATE OR REPLACE MACRO agent_call(model_name, system_prompt, user_prompt, tools_json) AS (

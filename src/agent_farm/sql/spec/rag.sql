@@ -3,6 +3,8 @@
 -- ============================================================================
 -- Hybrid search combining Vector Similarity (VSS) + Full-Text Search (FTS)
 -- for intelligent retrieval across all knowledge bases.
+-- Note: all macros using list_cosine_similarity() require the optional vss
+-- extension to be loaded before execution.
 -- ============================================================================
 
 -- ============================================================================
@@ -275,19 +277,8 @@ CREATE OR REPLACE MACRO knowledge_freshness() AS TABLE (
 );
 
 -- ============================================================================
--- F) DuckLake Integration Helpers
+-- F) Embedding / model stats
 -- ============================================================================
-
--- These macros help with DuckLake time-travel and snapshot features
--- Note: Actual DuckLake catalog setup requires external configuration
-
--- Placeholder for time-travel query (DuckLake syntax)
--- Usage: SELECT * FROM knowledge_at_time('knowledge_dev', '2024-01-15');
-CREATE OR REPLACE MACRO knowledge_at_time(table_name, as_of_date) AS (
-    -- When DuckLake is configured, this would use:
-    -- SELECT * FROM ducklake.catalog.{table_name} FOR SYSTEM_TIME AS OF {as_of_date}
-    SELECT 'DuckLake time-travel requires catalog configuration' AS note
-);
 
 -- Get embedding model stats
 -- Usage: SELECT * FROM embedding_model_stats();

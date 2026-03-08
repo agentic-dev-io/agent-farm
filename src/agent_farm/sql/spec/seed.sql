@@ -243,7 +243,7 @@ VALUES (20, 20, '{
     ],
     "dependencies": ["minijinja", "json_schema", "duckdb_mcp"],
     "config": {
-        "database": "db/spec_engine.db",
+        "database": ".agent_farm.db",
         "http_port": 9999
     }
 }', 'skill_config_schema');

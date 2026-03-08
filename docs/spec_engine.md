@@ -56,6 +56,8 @@ DUCKDB_DATABASE=my_specs.db agent-farm mcp
 SPEC_ENGINE_HTTP_PORT=9999 SPEC_ENGINE_API_KEY=secret agent-farm mcp
 ```
 
+When `agent-farm mcp` sees `SPEC_ENGINE_HTTP_PORT` and `SPEC_ENGINE_API_KEY`, the bootstrap path calls `httpserve_start(...)` directly. That runtime path is equivalent to the SQL helper `SELECT spec_http_start(...)`.
+
 ### From Python
 
 ```python
@@ -106,7 +108,9 @@ The Spec Engine uses these DuckDB extensions:
 | `lindel` | Space-filling curve helpers | No |
 | `shellfs` | Shell-backed SQL tools | No |
 
-Required extensions are loaded during bootstrap. SQL macro loading is fail-fast, so initialization aborts if a required runtime path cannot be bound cleanly.
+Required extensions are loaded during bootstrap and reused by `SpecEngine` when it binds to the same connection.
+
+Vector search is optional: the Python helpers `search_similar()` and `hybrid_search()`, plus the SQL RAG macros in `spec/rag.sql`, require the `vss` extension at runtime.
 
 ## Bootstrap And Runtime State
 
@@ -132,14 +136,23 @@ In addition to spec tables, the initialized database contains runtime tables suc
 ```sql
 -- Main specification objects
 CREATE TABLE spec_objects (
-    id          INTEGER PRIMARY KEY,
-    kind        VARCHAR NOT NULL,   -- 'agent', 'skill', 'api', 'schema', ...
-    name        VARCHAR NOT NULL,
-    version     VARCHAR NOT NULL DEFAULT '1.0.0',
-    status      VARCHAR NOT NULL DEFAULT 'draft',
-    summary     VARCHAR NOT NULL,
-    created_at  TIMESTAMP,
-    updated_at  TIMESTAMP,
+    id               INTEGER PRIMARY KEY,
+    kind             VARCHAR NOT NULL,
+    name             VARCHAR NOT NULL,
+    version          VARCHAR NOT NULL DEFAULT '1.0.0',
+    status           VARCHAR NOT NULL DEFAULT 'draft',
+    summary          VARCHAR NOT NULL,
+    source_type      VARCHAR DEFAULT 'internal',
+    source_url       VARCHAR,
+    source_ref       VARCHAR,
+    upstream_version VARCHAR,
+    last_sync        TIMESTAMP,
+    sync_status      VARCHAR DEFAULT 'none',
+    confidence       REAL DEFAULT 1.0,
+    use_count        INTEGER DEFAULT 0,
+    success_rate     REAL DEFAULT 0.0,
+    created_at       TIMESTAMP DEFAULT current_timestamp,
+    updated_at       TIMESTAMP DEFAULT current_timestamp,
     UNIQUE (kind, name, version)
 );
 
@@ -148,7 +161,8 @@ CREATE TABLE spec_docs (
     id          INTEGER PRIMARY KEY,
     object_id   INTEGER NOT NULL,
     doc         VARCHAR NOT NULL,
-    doc_format  VARCHAR DEFAULT 'markdown'
+    doc_format  VARCHAR DEFAULT 'markdown',
+    created_at  TIMESTAMP DEFAULT current_timestamp
 );
 
 -- JSON payloads for specs
@@ -156,11 +170,21 @@ CREATE TABLE spec_payloads (
     id          INTEGER PRIMARY KEY,
     object_id   INTEGER NOT NULL,
     payload     VARCHAR,            -- JSON stored as string
-    schema_ref  VARCHAR             -- Reference to a schema spec
+    schema_ref  VARCHAR,            -- Reference to a schema spec
+    created_at  TIMESTAMP DEFAULT current_timestamp
 );
 ```
 
 IDs for spec tables are allocated through DuckDB sequences, not via `MAX(id) + 1`, so writes are safe under concurrent usage.
+
+### Intelligence Tables
+
+The intelligence layer extends the core schema with:
+
+- `spec_embeddings`, including `chunk_index` with `UNIQUE (content_hash, chunk_index)` for chunked documents
+- `knowledge_studio`, including `options`, `chosen_option`, `rationale`, `user_feedback`, and `performance`
+- `knowledge_ops`, including `artifact_refs`, `metrics`, and `duration_ms`
+- `memory_conversations` for long-term session memory
 
 ### Spec Kinds
 
@@ -178,6 +202,9 @@ IDs for spec tables are allocated through DuckDB sequences, not via `MAX(id) + 1
 | `open_response` | Open Response format specs | - |
 | `org` | Organization configurations | DevOrg, OpsOrg |
 | `tool` | Individual tool definitions | - |
+| `macro` | SQL macros seeded into the Spec Engine as internal self-knowledge | `spec_http_start`, `spec_search` |
+
+Macro specs are seeded from SQL files by `seed_macros_to_spec_engine()` with `kind='macro'`.
 
 ### Convenience Views
 
@@ -330,6 +357,8 @@ SELECT mcp_call_remote_tool('server_name', 'tool_name', '{"arg": "value"}');
 SELECT mcp_get_remote_resource('server_name', 'resource://uri');
 ```
 
+The SQL names are compatibility wrappers: `mcp_call_remote_tool()` wraps DuckDB's `mcp_call_tool()`, and `mcp_get_remote_resource()` wraps `mcp_get_resource()`.
+
 For programmatic remote MCP access, prefer the Python methods `SpecEngine.mcp_query_remote()` and `SpecEngine.mcp_call_remote_tool()`.
 
 ## HTTP API
@@ -344,6 +373,8 @@ export SPEC_ENGINE_HTTP_PORT=9999
 export SPEC_ENGINE_API_KEY=your-secret-key
 agent-farm mcp
 ```
+
+`agent-farm mcp` reads those environment variables and starts the Query.Farm HTTP server via `httpserve_start(...)`. The SQL macro below is the in-database equivalent.
 
 ```sql
 -- Via SQL
@@ -528,13 +559,14 @@ docs/
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DUCKDB_DATABASE` | Path to DuckDB database | `:memory:` |
-| `SPEC_ENGINE_DB` | Path to Spec Engine database | `db/spec_engine.db` |
 | `SPEC_ENGINE_HTTP_PORT` | HTTP server port | None (disabled) |
 | `SPEC_ENGINE_API_KEY` | HTTP API authentication key | None |
 | `OLLAMA_BASE_URL` | Ollama chat endpoint | `http://localhost:11434` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | None |
 | `ANTHROPIC_BASE_URL` | Anthropic endpoint override | `https://api.anthropic.com` |
 | `SEARXNG_BASE_URL` | SearXNG endpoint for research macros | `http://searxng:8080` |
+
+`DUCKDB_DATABASE` is the single environment variable that selects the actual database file used by Agent Farm and `SpecEngine`.
 
 ## Python API Reference
 
@@ -543,10 +575,10 @@ docs/
 ```python
 from agent_farm.spec_engine import SpecEngine, get_spec_engine
 
-# Get singleton instance
+# Get or create the engine for a specific DuckDB connection
 engine = get_spec_engine(con)
 
-# Or create new instance
+# Or create a dedicated instance directly
 engine = SpecEngine(con)
 engine.initialize()
 
@@ -568,7 +600,7 @@ result = engine.validate_payload_against_spec("schema", "agent_config_schema", p
 
 # CRUD operations
 engine.spec_create(kind="agent", name="nova", summary="Research agent")
-engine.spec_update(id=10, version="1.0.1", status="active")
+engine.spec_update(id=10, version="1.0.1", status="active", schema_ref="agent_config_schema")
 engine.spec_delete(id=10)
 
 # Utilities
@@ -583,7 +615,26 @@ engine.stop_http_server()
 # MCP remote
 engine.mcp_query_remote("server", "resource://uri")
 engine.mcp_call_remote_tool("server", "tool", {"arg": "value"})
+
+# Embeddings / org knowledge
+engine.store_embedding("chunk text", [0.1, 0.2], "doc", chunk_index=0)
+engine.store_org_knowledge(
+    "studio",
+    "Landing page direction A won",
+    options=[{"name": "A"}, {"name": "B"}],
+    chosen_option="A",
+    rationale="Higher clarity",
+    user_feedback={"approved": True},
+)
+engine.store_org_knowledge(
+    "ops",
+    "Deploy succeeded",
+    artifact_refs=["artifacts/build.log"],
+    metrics={"latency_ms": 82},
+)
 ```
+
+`get_spec_engine()` caches one `SpecEngine` per DuckDB connection. If multiple connections are active, pass `con` explicitly.
 
 ## SQL Macro Reference
 
@@ -655,9 +706,13 @@ SELECT mcp_get_remote_resource('server', 'uri');
 SELECT mcp_get_remote_prompt('server', 'prompt', '{"arg": "value"}');
 ```
 
+These macros wrap the lower-level `mcp_call_tool()`, `mcp_get_resource()`, and `mcp_get_prompt()` functions from `duckdb_mcp`.
+
 ### HTTP Server Macros
 
 ```sql
 SELECT spec_http_start(9999, 'api-key');
 SELECT spec_http_stop();
 ```
+
+`spec_http_start()` expands to `httpserve_start('0.0.0.0', port, COALESCE('X-API-Key ' || api_key, ''))` and matches the behavior used by the CLI/bootstrap path.

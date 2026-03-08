@@ -8,50 +8,7 @@ import sys
 import duckdb
 import pytest
 
-
-def split_sql_statements(sql_content):
-    """Split SQL content into statements, respecting string literals."""
-    statements = []
-    current = []
-    in_string = False
-    string_char = None
-
-    i = 0
-    while i < len(sql_content):
-        char = sql_content[i]
-
-        # Handle string literals
-        if char in ("'", '"') and not in_string:
-            in_string = True
-            string_char = char
-            current.append(char)
-        elif char == string_char and in_string:
-            # Check for escaped quote
-            if i + 1 < len(sql_content) and sql_content[i + 1] == string_char:
-                current.append(char)
-                current.append(char)
-                i += 1
-            else:
-                in_string = False
-                string_char = None
-                current.append(char)
-        elif char == ";" and not in_string:
-            # End of statement
-            stmt = "".join(current).strip()
-            if stmt:
-                statements.append(stmt)
-            current = []
-        else:
-            current.append(char)
-        i += 1
-
-    # Don't forget last statement if no trailing semicolon
-    if current:
-        stmt = "".join(current).strip()
-        if stmt:
-            statements.append(stmt)
-
-    return statements
+from agent_farm.duckdb_utils import has_non_comment_content, split_sql_statements
 
 
 def test_macros():
@@ -123,11 +80,7 @@ def test_macros():
     errors = []
     success = 0
     for stmt in statements:
-        # Skip comment-only statements
-        lines = [
-            line for line in stmt.split("\n") if line.strip() and not line.strip().startswith("--")
-        ]
-        if not lines:
+        if not has_non_comment_content(stmt):
             continue
         try:
             con.sql(stmt)

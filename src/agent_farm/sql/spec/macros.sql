@@ -268,13 +268,15 @@ CREATE OR REPLACE MACRO mcp_list_prompts_remote(server_name) AS TABLE (
     WHERE FALSE
 );
 
--- Call a remote MCP tool
+-- Call a remote MCP tool.
+-- Wrapper macro around duckdb_mcp's mcp_call_tool().
 -- Usage: SELECT mcp_call_remote_tool('server_name', 'tool_name', '{"arg": "value"}');
 CREATE OR REPLACE MACRO mcp_call_remote_tool(server_name, tool_name, args) AS (
     SELECT mcp_call_tool(server_name, tool_name, args)
 );
 
--- Get a resource from a remote MCP server
+-- Get a resource from a remote MCP server.
+-- Wrapper macro around duckdb_mcp's mcp_get_resource().
 -- Usage: SELECT mcp_get_remote_resource('server_name', 'resource_uri');
 CREATE OR REPLACE MACRO mcp_get_remote_resource(server_name, resource_uri) AS (
     SELECT mcp_get_resource(server_name, resource_uri)
@@ -346,10 +348,12 @@ CREATE OR REPLACE MACRO spec_workflow_steps(workflow_name) AS (
 -- G) HTTP Server Helpers (httpserver extension)
 -- ============================================================================
 
--- Start HTTP server for Spec Engine API
+-- Start HTTP server for Spec Engine API.
+-- Equivalent to the runtime path used by agent-farm mcp when
+-- SPEC_ENGINE_HTTP_PORT / SPEC_ENGINE_API_KEY are set.
 -- Usage: SELECT spec_http_start(9999, 'my-secret-token');
 CREATE OR REPLACE MACRO spec_http_start(port, api_key) AS (
-    SELECT httpserve_start('0.0.0.0', port, 'X-API-Key ' || api_key)
+    SELECT httpserve_start('0.0.0.0', port, COALESCE('X-API-Key ' || api_key, ''))
 );
 
 -- Stop HTTP server

@@ -20,44 +20,24 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 import duckdb
 
+from agent_farm.duckdb_utils import (
+    has_non_comment_content,
+    split_sql_statements,
+    try_load_extension,
+)
 
-def try_load_extension(con, ext_name, from_community=False):
-    """Try to load an extension, returning True if successful."""
-    try:
-        if from_community:
-            con.sql(f"INSTALL {ext_name} FROM community;")
-        else:
-            con.sql(f"INSTALL {ext_name};")
-        con.sql(f"LOAD {ext_name};")
-        return True
-    except Exception:
-        try:
-            # Try loading without install (might be bundled)
-            con.sql(f"LOAD {ext_name};")
-            return True
-        except Exception:
-            return False
-
-
-def has_non_comment_content(stmt):
-    """Check if a SQL statement has any non-comment content."""
-    for ln in stmt.split("\n"):
-        ln = ln.strip()
-        if ln and not ln.startswith("--"):
-            return True
-    return False
+# Path to spec SQL files (schema, macros, seed, intelligence)
+SPEC_SQL_DIR = os.path.join(os.path.dirname(__file__), "..", "src", "agent_farm", "sql", "spec")
 
 
 def load_sql_file(con, filepath, verbose=False):
-    """Load and execute a SQL file, handling comments properly."""
+    """Load and execute a SQL file using duckdb_utils split/comment logic."""
     if not os.path.exists(filepath):
         return 0
-
-    with open(filepath, "r") as f:
+    with open(filepath, "r", encoding="utf-8") as f:
         sql_content = f.read()
-
     count = 0
-    for stmt in sql_content.split(";"):
+    for stmt in split_sql_statements(sql_content):
         stmt = stmt.strip()
         if has_non_comment_content(stmt):
             try:
@@ -80,11 +60,7 @@ class TestSpecEngineSchema:
         # Try to load json extension (may fail in network-restricted environments)
         try_load_extension(con, "json")
 
-        # Load schema
-        schema_path = os.path.join(
-            os.path.dirname(__file__), "..", "src", "agent_farm", "sql", "spec", "schema.sql"
-        )
-        load_sql_file(con, schema_path, verbose=True)
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "schema.sql"), verbose=True)
 
         yield con
         con.close()
@@ -144,10 +120,8 @@ class TestSpecEngineSeed:
         con = duckdb.connect(":memory:")
         try_load_extension(con, "json")
 
-        # Load schema and seed data
-        db_dir = os.path.join(os.path.dirname(__file__), "..", "src", "agent_farm", "sql", "spec")
-        load_sql_file(con, os.path.join(db_dir, "schema.sql"))
-        load_sql_file(con, os.path.join(db_dir, "seed.sql"), verbose=True)
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "schema.sql"))
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "seed.sql"), verbose=True)
 
         yield con
         con.close()
@@ -197,13 +171,11 @@ class TestSpecEngineMacros:
         try_load_extension(con, "json")
 
         # Try to load minijinja
-        self.has_minijinja = try_load_extension(con, "minijinja", from_community=True)
+        try_load_extension(con, "minijinja", from_community=True)
 
-        # Load all SQL files
-        db_dir = os.path.join(os.path.dirname(__file__), "..", "src", "agent_farm", "sql", "spec")
-        load_sql_file(con, os.path.join(db_dir, "schema.sql"))
-        load_sql_file(con, os.path.join(db_dir, "macros.sql"))
-        load_sql_file(con, os.path.join(db_dir, "seed.sql"))
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "schema.sql"))
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "macros.sql"))
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "seed.sql"))
 
         yield con
         con.close()
@@ -329,11 +301,9 @@ class TestSpecEngineIntegration:
         try_load_extension(con, "minijinja", from_community=True)
         try_load_extension(con, "json_schema", from_community=True)
 
-        # Load all SQL files
-        db_dir = os.path.join(os.path.dirname(__file__), "..", "src", "agent_farm", "sql", "spec")
-        load_sql_file(con, os.path.join(db_dir, "schema.sql"))
-        load_sql_file(con, os.path.join(db_dir, "macros.sql"))
-        load_sql_file(con, os.path.join(db_dir, "seed.sql"))
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "schema.sql"))
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "macros.sql"))
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "seed.sql"))
 
         yield con
         con.close()
@@ -371,6 +341,162 @@ class TestSpecEngineIntegration:
         view_count = con.sql("SELECT COUNT(*) FROM spec_agents_view").fetchone()[0]
 
         assert table_count == view_count
+
+
+class TestSpecEngineRegressions:
+    """Regression tests for recently fixed Spec Engine edge cases."""
+
+    @pytest.fixture
+    def intelligence_setup(self):
+        """Create a DuckDB connection with intelligence tables only."""
+        con = duckdb.connect(":memory:")
+        load_sql_file(con, os.path.join(SPEC_SQL_DIR, "intelligence.sql"))
+
+        yield con
+        con.close()
+
+    def test_http_start_helper_uses_parameter_binding(self):
+        """HTTP startup should use bound parameters instead of SQL string interpolation."""
+        from agent_farm.duckdb_utils import start_http_server
+
+        class FakeConnection:
+            def __init__(self):
+                self.calls = []
+
+            def execute(self, query, params):
+                self.calls.append((query, params))
+                return self
+
+        fake = FakeConnection()
+        start_http_server(fake, 9999, "secret")
+
+        assert fake.calls == [
+            ("SELECT httpserve_start(?, ?, ?)", ["0.0.0.0", 9999, "X-API-Key secret"])
+        ]
+
+    def test_get_spec_engine_is_cached_per_connection(self, monkeypatch):
+        """Each DuckDB connection should keep its own SpecEngine instance."""
+        from agent_farm import spec_engine as spec_module
+
+        spec_module._spec_engines.clear()
+
+        def fake_initialize(self):
+            self._initialized = True
+
+        monkeypatch.setattr(spec_module.SpecEngine, "initialize", fake_initialize)
+
+        con1 = duckdb.connect(":memory:")
+        con2 = duckdb.connect(":memory:")
+        try:
+            engine1 = spec_module.get_spec_engine(con1)
+            engine1_again = spec_module.get_spec_engine(con1)
+            engine2 = spec_module.get_spec_engine(con2)
+
+            assert engine1 is engine1_again
+            assert engine1 is not engine2
+
+            with pytest.raises(ValueError, match="Multiple SpecEngine instances are active"):
+                spec_module.get_spec_engine()
+        finally:
+            con1.close()
+            con2.close()
+            spec_module._spec_engines.clear()
+
+    def test_store_embedding_persists_chunk_index(self, intelligence_setup):
+        """store_embedding should write chunk_index explicitly and keep IDs stable on upsert."""
+        from agent_farm.spec_engine import SpecEngine
+
+        engine = SpecEngine(intelligence_setup)
+
+        first = engine.store_embedding(
+            "chunked content",
+            [0.1, 0.2],
+            "doc",
+            chunk_index=3,
+            metadata={"section": "intro"},
+        )
+        second = engine.store_embedding(
+            "chunked content",
+            [0.3, 0.4],
+            "doc",
+            chunk_index=3,
+            metadata={"section": "updated"},
+        )
+
+        assert first["embedding_id"] == second["embedding_id"]
+        row = intelligence_setup.execute(
+            """
+            SELECT chunk_index, embedding_model, metadata
+            FROM spec_embeddings
+            WHERE id = ?
+            """,
+            [first["embedding_id"]],
+        ).fetchone()
+
+        assert row[0] == 3
+        assert row[1] == "default"
+        assert json.loads(row[2]) == {"section": "updated"}
+
+    def test_store_org_knowledge_supports_full_studio_and_ops_fields(self, intelligence_setup):
+        """store_org_knowledge should map the schema's studio and ops columns."""
+        from agent_farm.spec_engine import SpecEngine
+
+        engine = SpecEngine(intelligence_setup)
+
+        studio = engine.store_org_knowledge(
+            "studio",
+            "Decision body",
+            options=[{"name": "A"}, {"name": "B"}],
+            chosen_option="A",
+            rationale="Clearer hierarchy",
+            user_feedback={"approved": True},
+            performance=0.8,
+        )
+        ops = engine.store_org_knowledge(
+            "ops",
+            "Deploy finished",
+            artifact_refs=["artifacts/build.log"],
+            metrics={"latency_ms": 82},
+            duration_ms=1200,
+        )
+
+        studio_row = intelligence_setup.execute(
+            """
+            SELECT options, chosen_option, user_feedback, performance
+            FROM knowledge_studio
+            WHERE id = ?
+            """,
+            [studio["entry_id"]],
+        ).fetchone()
+        ops_row = intelligence_setup.execute(
+            """
+            SELECT artifact_refs, metrics, duration_ms
+            FROM knowledge_ops
+            WHERE id = ?
+            """,
+            [ops["entry_id"]],
+        ).fetchone()
+
+        assert json.loads(studio_row[0]) == [{"name": "A"}, {"name": "B"}]
+        assert studio_row[1] == "A"
+        assert json.loads(studio_row[2]) == {"approved": True}
+        assert studio_row[3] == pytest.approx(0.8)
+
+        assert ops_row[0] == ["artifacts/build.log"]
+        assert json.loads(ops_row[1]) == {"latency_ms": 82}
+        assert ops_row[2] == 1200
+
+    def test_vector_search_methods_fail_clearly_without_vss(self, intelligence_setup):
+        """Vector helpers should fail with a clear message when vss is unavailable."""
+        from agent_farm.spec_engine import SpecEngine
+
+        engine = SpecEngine(intelligence_setup)
+
+        with pytest.raises(RuntimeError, match="requires the DuckDB 'vss' extension"):
+            engine.search_similar([0.1, 0.2])
+
+        with pytest.raises(RuntimeError, match="requires the DuckDB 'vss' extension"):
+            engine.hybrid_search("query", [0.1, 0.2])
 
 
 if __name__ == "__main__":

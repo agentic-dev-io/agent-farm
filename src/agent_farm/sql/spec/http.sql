@@ -8,6 +8,9 @@
 --   1. Set environment variables:
 --      export SPEC_ENGINE_HTTP_PORT=9999
 --      export SPEC_ENGINE_API_KEY=your-secret-key
+--      agent-farm mcp
+--      (the CLI/bootstrap path calls httpserve_start(), which is the
+--       runtime equivalent of SELECT spec_http_start(...))
 --
 --   2. Or start manually:
 --      SELECT spec_http_start(9999, 'your-secret-key');
@@ -28,7 +31,7 @@ CREATE OR REPLACE VIEW http_server_info AS
 SELECT
     'httpserver' AS component,
     'Query.Farm HTTP OLAP API' AS description,
-    'Use SELECT httpserve_start() to start' AS hint;
+    'Use SELECT spec_http_start(...) or the CLI env vars to start' AS hint;
 
 -- ============================================================================
 -- Convenience Endpoints (as views for common queries)

@@ -8,24 +8,7 @@
 CREATE OR REPLACE MACRO anthropic_base() AS
     COALESCE(getenv('ANTHROPIC_BASE_URL'), 'https://api.anthropic.com');
 
--- Anthropic Messages API: send messages and return raw response body
-CREATE OR REPLACE MACRO anthropic_chat(model_name, messages_json, max_tokens) AS (
-    SELECT http_post(
-        anthropic_base() || '/v1/messages',
-        headers := MAP {
-            'Content-Type': 'application/json',
-            'x-api-key': COALESCE(getenv('ANTHROPIC_API_KEY'), ''),
-            'anthropic-version': '2023-06-01'
-        },
-        body := json_object(
-            'model', model_name,
-            'messages', json(messages_json),
-            'max_tokens', max_tokens
-        )
-    ).body
-);
-
--- Anthropic Messages API with tool definitions for function-calling
+-- Anthropic Messages API with tool definitions (only path; use empty array for no tools)
 CREATE OR REPLACE MACRO anthropic_chat_tools(model_name, messages_json, tools_json, max_tokens) AS (
     SELECT http_post(
         anthropic_base() || '/v1/messages',

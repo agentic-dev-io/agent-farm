@@ -1,8 +1,14 @@
 -- base.sql - Core utilities and helpers
 -- Must be loaded first as other macros depend on these
 
--- Retrieve a named secret value (stub — replace with vault integration)
-CREATE OR REPLACE MACRO get_secret(name) AS 'mock_secret_value';
+-- Resolve a named secret from env (e.g. brave_api_key -> BRAVE_API_KEY)
+CREATE OR REPLACE MACRO get_secret(name) AS (
+    CASE lower(name)
+        WHEN 'brave_api_key' THEN getenv('BRAVE_API_KEY')
+        WHEN 'elevenlabs_key' THEN getenv('ELEVENLABS_API_KEY')
+        ELSE getenv(upper(replace(name, '-', '_')))
+    END
+);
 
 -- URL-encode a string (percent-encodes space, &, =, ?, #, %)
 CREATE OR REPLACE MACRO url_encode(str) AS (

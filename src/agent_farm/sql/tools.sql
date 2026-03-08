@@ -30,7 +30,7 @@ CREATE OR REPLACE MACRO ddg_definition(query) AS (
 CREATE OR REPLACE MACRO brave_search(query) AS (
     http_get(
         'https://api.search.brave.com/res/v1/web/search?q=' || url_encode(query),
-        MAP {'X-Subscription-Token': get_secret('brave_api_key')},
+        MAP {'X-Subscription-Token': COALESCE(get_secret('brave_api_key'), '')},
         MAP {}
     ).body::JSON
 );
@@ -44,7 +44,7 @@ CREATE OR REPLACE MACRO brave_results(query) AS (
 CREATE OR REPLACE MACRO brave_news(query) AS (
     http_get(
         'https://api.search.brave.com/res/v1/news/search?q=' || url_encode(query),
-        MAP {'X-Subscription-Token': get_secret('brave_api_key')},
+        MAP {'X-Subscription-Token': COALESCE(get_secret('brave_api_key'), '')},
         MAP {}
     ).body::JSON
 );
@@ -297,6 +297,6 @@ CREATE OR REPLACE MACRO elevenlabs_tts(text_input) AS TABLE
 SELECT
     http_post(
         'https://api.elevenlabs.io/v1/tts/voice_id',
-        headers := MAP {'xi-api-key': get_secret('elevenlabs_key')},
+        headers := MAP {'xi-api-key': COALESCE(get_secret('elevenlabs_key'), '')},
         body := json_object('text', text_input)
     ) AS audio_file_bytes;

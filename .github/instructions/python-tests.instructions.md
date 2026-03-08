@@ -23,7 +23,7 @@ When writing or modifying Python tests in the agent-farm repository, follow thes
    except Exception:
        pytest.skip("Extension not available")
    ```
-3. **SQL statement parsing** - Use the existing `split_sql_statements()` helper from `tests/test_macros.py` for parsing SQL files
+3. **SQL statement parsing** - Use `split_sql_statements()` and `has_non_comment_content()` from `agent_farm.duckdb_utils` for parsing SQL files
 4. **Macro validation** - Test that macros can be created without syntax errors before testing functionality
 
 ### External Dependencies

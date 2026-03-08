@@ -18,14 +18,25 @@ MCP Tools exposed:
 - mcp_call_remote_tool: Call remote MCP tools
 """
 
+import hashlib
 import json
 import os
 import sys
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from weakref import WeakKeyDictionary
 
 import duckdb
+
+from .duckdb_utils import (
+    SPEC_ENGINE_EXTENSION_SPECS,
+    has_non_comment_content,
+    is_extension_loaded,
+    load_duckdb_extensions,
+    split_sql_statements,
+    start_http_server as start_duckdb_http_server,
+)
 
 
 class SpecEngine:
@@ -40,10 +51,10 @@ class SpecEngine:
 
         Args:
             con: DuckDB connection to use
-            db_path: Optional path to persist the database
+            db_path: Optional informational path for the active DuckDB database
         """
         self.con = con
-        self.db_path = db_path or os.environ.get("SPEC_ENGINE_DB", "db/spec_engine.db")
+        self.db_path = db_path or os.environ.get("DUCKDB_DATABASE", ":memory:")
         self._initialized = False
 
     def initialize(self) -> None:
@@ -75,43 +86,11 @@ class SpecEngine:
 
     def _load_extensions(self) -> None:
         """Load required DuckDB extensions."""
-        extensions = [
-            ("minijinja", True),  # Template rendering
-            ("json_schema", True),  # JSON Schema validation
-            ("duckdb_mcp", True),  # MCP integration
-            ("httpserver", False),  # HTTP API (optional)
-            ("json", True),  # JSON support
-            ("httpfs", False),  # HTTP filesystem
-            ("http_client", False),  # HTTP client
-        ]
-
-        for ext, required in extensions:
-            try:
-                # Try standard install first
-                self.con.sql(f"INSTALL {ext};")
-                self.con.sql(f"LOAD {ext};")
-                print(f"Spec Engine: Loaded {ext}", file=sys.stderr)
-            except Exception:
-                try:
-                    # Try community install
-                    self.con.sql(f"INSTALL {ext} FROM community;")
-                    self.con.sql(f"LOAD {ext};")
-                    print(f"Spec Engine: Loaded {ext} from community", file=sys.stderr)
-                except Exception as e:
-                    if required:
-                        print(f"Spec Engine: REQUIRED extension {ext} failed: {e}", file=sys.stderr)
-                    else:
-                        print(
-                            f"Spec Engine: Optional extension {ext} skipped: {e}", file=sys.stderr
-                        )
+        load_duckdb_extensions(self.con, SPEC_ENGINE_EXTENSION_SPECS)
 
     def _has_non_comment_content(self, stmt: str) -> bool:
         """Check if a SQL statement has any non-comment content."""
-        for ln in stmt.split("\n"):
-            ln = ln.strip()
-            if ln and not ln.startswith("--"):
-                return True
-        return False
+        return has_non_comment_content(stmt)
 
     def _render_template(self, template_str: str | None, context_json: str | None) -> str | None:
         """Render a MiniJinja template via parameter binding."""
@@ -125,11 +104,25 @@ class SpecEngine:
         ).fetchone()
         return result[0] if result else None
 
-    def _register_internal_udfs(self) -> None:
-        """Register internal helper UDFs used by SQL macros."""
-
-        def spec_render_template_udf(template_name: str, context_json: str) -> str | None:
-            template = self.con.execute(
+    def _get_template_str(
+        self, template_name: str, version: str | None = None
+    ) -> str | None:
+        """Load template body by name (latest active) or by name+version. Returns None if not found."""
+        if version is not None:
+            result = self.con.execute(
+                """
+                SELECT p.payload->>'template'
+                FROM spec_objects o
+                JOIN spec_payloads p ON p.object_id = o.id
+                WHERE o.kind IN ('task_template', 'prompt_template')
+                  AND o.name = ?
+                  AND o.version = ?
+                LIMIT 1
+                """,
+                [template_name, version],
+            ).fetchone()
+        else:
+            result = self.con.execute(
                 """
                 SELECT p.payload->>'template'
                 FROM spec_objects o
@@ -142,26 +135,22 @@ class SpecEngine:
                 """,
                 [template_name],
             ).fetchone()
-            return self._render_template(template[0] if template else None, context_json)
+        return result[0] if result else None
+
+    def _register_internal_udfs(self) -> None:
+        """Register internal helper UDFs used by SQL macros."""
+
+        def spec_render_template_udf(template_name: str, context_json: str) -> str | None:
+            template_str = self._get_template_str(template_name)
+            return self._render_template(template_str, context_json)
 
         def spec_render_template_version_udf(
             template_name: str,
             version_name: str,
             context_json: str,
         ) -> str | None:
-            template = self.con.execute(
-                """
-                SELECT p.payload->>'template'
-                FROM spec_objects o
-                JOIN spec_payloads p ON p.object_id = o.id
-                WHERE o.kind IN ('task_template', 'prompt_template')
-                  AND o.name = ?
-                  AND o.version = ?
-                LIMIT 1
-                """,
-                [template_name, version_name],
-            ).fetchone()
-            return self._render_template(template[0] if template else None, context_json)
+            template_str = self._get_template_str(template_name, version_name)
+            return self._render_template(template_str, context_json)
 
         def spec_render_direct_udf(template_str: str, context_json: str) -> str | None:
             return self._render_template(template_str, context_json)
@@ -226,44 +215,7 @@ class SpecEngine:
 
     def _split_sql(self, sql_content: str) -> list[str]:
         """Split SQL content into statements, respecting string literals."""
-        statements = []
-        current = []
-        in_string = False
-        string_char = None
-
-        i = 0
-        while i < len(sql_content):
-            char = sql_content[i]
-
-            if char in ("'", '"') and not in_string:
-                in_string = True
-                string_char = char
-                current.append(char)
-            elif char == string_char and in_string:
-                if i + 1 < len(sql_content) and sql_content[i + 1] == string_char:
-                    current.append(char)
-                    current.append(char)
-                    i += 1
-                else:
-                    in_string = False
-                    string_char = None
-                    current.append(char)
-            elif char == ";" and not in_string:
-                stmt = "".join(current).strip()
-                # Use _has_non_comment_content to properly check for real SQL
-                if stmt and self._has_non_comment_content(stmt):
-                    statements.append(stmt)
-                current = []
-            else:
-                current.append(char)
-            i += 1
-
-        if current:
-            stmt = "".join(current).strip()
-            if stmt and self._has_non_comment_content(stmt):
-                statements.append(stmt)
-
-        return statements
+        return split_sql_statements(sql_content)
 
     def _load_schema(self) -> None:
         """Load the Spec Engine schema including intelligence layer."""
@@ -510,23 +462,9 @@ class SpecEngine:
             Dict with 'rendered' key containing the rendered string
         """
         try:
-            # Get the template from spec_payloads
-            template_query = """
-                SELECT p.payload->>'template'
-                FROM spec_objects o
-                JOIN spec_payloads p ON p.object_id = o.id
-                WHERE o.kind IN ('task_template', 'prompt_template')
-                  AND o.name = ?
-                  AND o.status = 'active'
-                ORDER BY o.version DESC
-                LIMIT 1
-            """
-            result = self.con.execute(template_query, [template_name]).fetchone()
-
-            if not result or not result[0]:
+            template_str = self._get_template_str(template_name)
+            if not template_str:
                 return {"error": f"Template '{template_name}' not found", "rendered": None}
-
-            template_str = result[0]
 
             # Render using minijinja
             render_query = "SELECT minijinja_render(?, ?)"
@@ -709,9 +647,7 @@ class SpecEngine:
             True if started successfully
         """
         try:
-            auth = f"X-API-Key {api_key}" if api_key else ""
-            auth_escaped = auth.replace("'", "''")
-            self.con.sql(f"SELECT httpserve_start('0.0.0.0', {port}, '{auth_escaped}')")
+            start_duckdb_http_server(self.con, port, api_key)
             print(f"Spec Engine: HTTP server started on port {port}", file=sys.stderr)
             return True
         except Exception as e:
@@ -781,8 +717,20 @@ class SpecEngine:
 
             # Insert payload if provided
             if payload is not None:
+                if isinstance(payload, dict):
+                    payload_json = json.dumps(payload)
+                elif isinstance(payload, str):
+                    try:
+                        json.loads(payload)
+                    except json.JSONDecodeError as e:
+                        return {"error": f"payload string is not valid JSON: {e}", "created": False}
+                    payload_json = payload
+                else:
+                    return {
+                        "error": "payload must be a dict or a valid JSON string",
+                        "created": False,
+                    }
                 payload_id = self._next_id("spec_payloads_seq")
-                payload_json = json.dumps(payload) if isinstance(payload, dict) else payload
                 self.con.execute(
                     "INSERT INTO spec_payloads (id, object_id, payload, schema_ref)"
                     " VALUES (?, ?, ?, ?)",
@@ -802,6 +750,7 @@ class SpecEngine:
         summary: str | None = None,
         doc: str | None = None,
         payload: dict[str, Any] | None = None,
+        schema_ref: str | None = None,
     ) -> dict[str, Any]:
         """
         Update an existing spec.
@@ -813,6 +762,7 @@ class SpecEngine:
             summary: New summary (optional)
             doc: New documentation (optional)
             payload: New payload (optional)
+            schema_ref: New schema reference for payload validation (optional)
 
         Returns:
             Dict with success status or error
@@ -839,7 +789,6 @@ class SpecEngine:
                 )
 
             if doc is not None:
-                # Update or insert doc
                 existing = self.con.execute(
                     "SELECT id FROM spec_docs WHERE object_id = ?", [id]
                 ).fetchone()
@@ -851,6 +800,9 @@ class SpecEngine:
                         "INSERT INTO spec_docs (id, object_id, doc) VALUES (?, ?, ?)",
                         [doc_id, id, doc],
                     )
+                self.con.execute(
+                    "UPDATE spec_objects SET updated_at = current_timestamp WHERE id = ?", [id]
+                )
 
             if payload is not None:
                 payload_json = json.dumps(payload) if isinstance(payload, dict) else payload
@@ -858,15 +810,47 @@ class SpecEngine:
                     "SELECT id FROM spec_payloads WHERE object_id = ?", [id]
                 ).fetchone()
                 if existing:
+                    if schema_ref is not None:
+                        self.con.execute(
+                            "UPDATE spec_payloads SET payload = ?, schema_ref = ? WHERE object_id = ?",
+                            [payload_json, schema_ref, id],
+                        )
+                    else:
+                        self.con.execute(
+                            "UPDATE spec_payloads SET payload = ? WHERE object_id = ?",
+                            [payload_json, id],
+                        )
+                else:
                     self.con.execute(
-                        "UPDATE spec_payloads SET payload = ? WHERE object_id = ?",
-                        [payload_json, id],
+                        "INSERT INTO spec_payloads (id, object_id, payload, schema_ref)"
+                        " VALUES (?, ?, ?, ?)",
+                        [self._next_id("spec_payloads_seq"), id, payload_json, schema_ref],
+                    )
+                self.con.execute(
+                    "UPDATE spec_objects SET updated_at = current_timestamp WHERE id = ?", [id]
+                )
+            elif schema_ref is not None:
+                existing = self.con.execute(
+                    "SELECT id FROM spec_payloads WHERE object_id = ?", [id]
+                ).fetchone()
+                if existing:
+                    self.con.execute(
+                        "UPDATE spec_payloads SET schema_ref = ? WHERE object_id = ?",
+                        [schema_ref, id],
+                    )
+                    self.con.execute(
+                        "UPDATE spec_objects SET updated_at = current_timestamp WHERE id = ?",
+                        [id],
                     )
                 else:
-                    payload_id = self._next_id("spec_payloads_seq")
                     self.con.execute(
-                        "INSERT INTO spec_payloads (id, object_id, payload) VALUES (?, ?, ?)",
-                        [payload_id, id, payload_json],
+                        "INSERT INTO spec_payloads (id, object_id, payload, schema_ref)"
+                        " VALUES (?, ?, ?, ?)",
+                        [self._next_id("spec_payloads_seq"), id, "{}", schema_ref],
+                    )
+                    self.con.execute(
+                        "UPDATE spec_objects SET updated_at = current_timestamp WHERE id = ?",
+                        [id],
                     )
 
             return {"updated": True}
@@ -876,7 +860,7 @@ class SpecEngine:
 
     def spec_delete(self, id: int) -> dict[str, Any]:
         """
-        Delete a spec by ID.
+        Delete a spec by ID and all dependent rows (feedback, adaptations, relationships).
 
         Args:
             id: Spec ID to delete
@@ -885,7 +869,12 @@ class SpecEngine:
             Dict with success status or error
         """
         try:
-            # Delete related records first (no foreign key cascade in our schema)
+            # Delete dependent records first (no FK CASCADE in schema)
+            self.con.execute("DELETE FROM spec_feedback WHERE spec_id = ?", [id])
+            self.con.execute("DELETE FROM spec_adaptations WHERE spec_id = ?", [id])
+            self.con.execute(
+                "DELETE FROM spec_relationships WHERE from_id = ? OR to_id = ?", [id, id]
+            )
             self.con.execute("DELETE FROM spec_docs WHERE object_id = ?", [id])
             self.con.execute("DELETE FROM spec_payloads WHERE object_id = ?", [id])
             self.con.execute("DELETE FROM spec_objects WHERE id = ?", [id])
@@ -948,6 +937,20 @@ class SpecEngine:
     def is_initialized(self) -> bool:
         """Check if the Spec Engine is initialized."""
         return self._initialized
+
+    def _serialize_json_field(self, value: Any) -> str | None:
+        """Serialize JSON-like values while leaving strings untouched."""
+        if value is None or isinstance(value, str):
+            return value
+        return json.dumps(value)
+
+    def _require_extension_loaded(self, extension_name: str, feature_name: str) -> None:
+        """Raise a clear error when an optional extension is required at runtime."""
+        if is_extension_loaded(self.con, extension_name):
+            return
+        raise RuntimeError(
+            f"{feature_name} requires the DuckDB '{extension_name}' extension to be loaded."
+        )
 
     # =========================================================================
     # Meta-Learning Methods (Self-Improvement)
@@ -1477,6 +1480,7 @@ class SpecEngine:
         org_id: int | None = None,
         metadata: dict | None = None,
         embedding_model: str = "default",
+        chunk_index: int = 0,
     ) -> dict[str, Any]:
         """
         Store content with its embedding vector.
@@ -1489,14 +1493,15 @@ class SpecEngine:
             org_id: Optional reference to org spec
             metadata: Optional JSON metadata
             embedding_model: Model used for embedding
+            chunk_index: Chunk number for chunked documents (default: 0)
 
         Returns:
             Dict with embedding ID
         """
         try:
-            import hashlib
-
             content_hash = hashlib.sha256(content.encode()).hexdigest()
+            if chunk_index < 0:
+                raise ValueError("chunk_index must be >= 0")
 
             emb_id = self._next_id("spec_embeddings_seq")
 
@@ -1504,10 +1509,13 @@ class SpecEngine:
                 """
                 INSERT INTO spec_embeddings
                     (id, spec_id, org_id, content_type, content_hash,
-                     content, embedding, embedding_model, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     content, chunk_index, embedding, embedding_model, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (content_hash, chunk_index) DO UPDATE SET
-                    embedding = EXCLUDED.embedding
+                    embedding = EXCLUDED.embedding,
+                    embedding_model = EXCLUDED.embedding_model,
+                    metadata = EXCLUDED.metadata,
+                    updated_at = now()
                 """,
                 [
                     emb_id,
@@ -1516,13 +1524,28 @@ class SpecEngine:
                     content_type,
                     content_hash,
                     content,
+                    chunk_index,
                     embedding,
                     embedding_model,
-                    json.dumps(metadata) if metadata else None,
+                    self._serialize_json_field(metadata),
                 ],
             )
 
-            return {"embedding_id": emb_id, "content_hash": content_hash}
+            stored_row = self.con.execute(
+                """
+                SELECT id
+                FROM spec_embeddings
+                WHERE content_hash = ? AND chunk_index = ?
+                """,
+                [content_hash, chunk_index],
+            ).fetchone()
+            stored_id = stored_row[0] if stored_row else emb_id
+
+            return {
+                "embedding_id": stored_id,
+                "content_hash": content_hash,
+                "chunk_index": chunk_index,
+            }
 
         except Exception as e:
             return {"error": str(e)}
@@ -1544,6 +1567,8 @@ class SpecEngine:
         Returns:
             List of similar content with similarity scores
         """
+        self._require_extension_loaded("vss", "search_similar()")
+
         try:
             if content_type:
                 query = """
@@ -1570,20 +1595,19 @@ class SpecEngine:
                     LIMIT ?
                 """
                 result = self.con.execute(query, [query_embedding, k]).fetchall()
+        except Exception as e:
+            raise RuntimeError(f"search_similar() failed: {e}") from e
 
-            columns = [
-                "id",
-                "spec_id",
-                "org_id",
-                "content_type",
-                "content",
-                "metadata",
-                "similarity",
-            ]
-            return [dict(zip(columns, row)) for row in result]
-
-        except Exception:
-            return []
+        columns = [
+            "id",
+            "spec_id",
+            "org_id",
+            "content_type",
+            "content",
+            "metadata",
+            "similarity",
+        ]
+        return [dict(zip(columns, row)) for row in result]
 
     def hybrid_search(
         self,
@@ -1606,6 +1630,8 @@ class SpecEngine:
         Returns:
             List of results with hybrid scores
         """
+        self._require_extension_loaded("vss", "hybrid_search()")
+
         try:
             vector_weight = 1.0 - keyword_weight
             params: list[Any]
@@ -1671,22 +1697,21 @@ class SpecEngine:
                 """
                 params = [text_query, query_embedding, k]
             result = self.con.execute(query, params).fetchall()
+        except Exception as e:
+            raise RuntimeError(f"hybrid_search() failed: {e}") from e
 
-            columns = [
-                "id",
-                "spec_id",
-                "org_id",
-                "content_type",
-                "content",
-                "metadata",
-                "keyword_score",
-                "vector_score",
-                "hybrid_score",
-            ]
-            return [dict(zip(columns, row)) for row in result]
-
-        except Exception:
-            return []
+        columns = [
+            "id",
+            "spec_id",
+            "org_id",
+            "content_type",
+            "content",
+            "metadata",
+            "keyword_score",
+            "vector_score",
+            "hybrid_score",
+        ]
+        return [dict(zip(columns, row)) for row in result]
 
     def store_conversation_memory(
         self,
@@ -1731,7 +1756,7 @@ class SpecEngine:
                     content,
                     embedding,
                     importance,
-                    json.dumps(tool_calls) if tool_calls else None,
+                    self._serialize_json_field(tool_calls),
                 ],
             )
 
@@ -1847,9 +1872,9 @@ class SpecEngine:
                     """
                     INSERT INTO knowledge_studio
                         (id, project, decision_type, title,
-                         description, content, embedding,
-                         rationale, performance)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         description, content, embedding, options,
+                         chosen_option, rationale, user_feedback, performance)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         entry_id,
@@ -1859,7 +1884,10 @@ class SpecEngine:
                         kwargs.get("description"),
                         content,
                         embedding,
+                        self._serialize_json_field(kwargs.get("options")),
+                        kwargs.get("chosen_option"),
                         kwargs.get("rationale"),
+                        self._serialize_json_field(kwargs.get("user_feedback")),
                         kwargs.get("performance"),
                     ],
                 )
@@ -1869,8 +1897,8 @@ class SpecEngine:
                     """
                     INSERT INTO knowledge_ops
                         (id, pipeline, run_id, status, log_level,
-                         content, embedding, metrics, duration_ms)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         content, embedding, artifact_refs, metrics, duration_ms)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     [
                         entry_id,
@@ -1880,7 +1908,8 @@ class SpecEngine:
                         kwargs.get("log_level", "info"),
                         content,
                         embedding,
-                        json.dumps(kwargs.get("metrics")) if kwargs.get("metrics") else None,
+                        kwargs.get("artifact_refs"),
+                        self._serialize_json_field(kwargs.get("metrics")),
                         kwargs.get("duration_ms"),
                     ],
                 )
@@ -1947,35 +1976,43 @@ class SpecEngine:
             return {"error": str(e)}
 
 
-# Global spec engine instance
-_spec_engine: SpecEngine | None = None
+# SpecEngine instances are cached per DuckDB connection.
+_spec_engines: WeakKeyDictionary[duckdb.DuckDBPyConnection, SpecEngine] = WeakKeyDictionary()
 _spec_engine_lock = Lock()
 
 
 def get_spec_engine(con: duckdb.DuckDBPyConnection | None = None) -> SpecEngine:
     """
-    Get or create the global Spec Engine instance.
+    Get or create the SpecEngine bound to a DuckDB connection.
+
+    Without con, the call is only allowed when exactly one SpecEngine is already
+    bound (e.g. single connection in use). With 0 or 2+ engines, passing con is required.
 
     Args:
-        con: Optional DuckDB connection (only used on first call)
+        con: DuckDB connection to bind to. If None, returns the single cached engine
+            (raises if none or multiple are active).
 
     Returns:
-        The global SpecEngine instance
+        The SpecEngine for the given (or sole) connection.
     """
-    global _spec_engine
     with _spec_engine_lock:
-        if _spec_engine is None:
-            if con is None:
+        if con is None:
+            engines = list(_spec_engines.values())
+            if not engines:
                 raise ValueError("Connection required for first SpecEngine initialization")
-            _spec_engine = SpecEngine(con)
-            _spec_engine.initialize()
-            return _spec_engine
+            if len(engines) > 1:
+                raise ValueError(
+                    "Multiple SpecEngine instances are active; pass the DuckDB connection explicitly."
+                )
+            return engines[0]
 
-        if con is not None and _spec_engine.con is not con:
-            _spec_engine = SpecEngine(con)
-            _spec_engine.initialize()
+        engine = _spec_engines.get(con)
+        if engine is None:
+            engine = SpecEngine(con)
+            engine.initialize()
+            _spec_engines[con] = engine
 
-        return _spec_engine
+        return engine
 
 
 def register_spec_engine_tools(con: duckdb.DuckDBPyConnection) -> list[str]:
@@ -2004,7 +2041,7 @@ def register_spec_engine_tools(con: duckdb.DuckDBPyConnection) -> list[str]:
 
     # Register spec_search as UDF
     def udf_spec_search(query: str, limit: int = 20) -> str:
-        result = engine.spec_search(query, limit)
+        result = engine.spec_search(query, limit=limit)
         return json.dumps(result)
 
     try:

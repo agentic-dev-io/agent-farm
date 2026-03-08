@@ -14,60 +14,21 @@ Entry point for the MCP server.
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 import duckdb
 
-
-def _has_non_comment_content(stmt: str) -> bool:
-    """Check if a SQL statement has any non-comment content."""
-    for ln in stmt.split("\n"):
-        ln = ln.strip()
-        if ln and not ln.startswith("--"):
-            return True
-    return False
-
-
-def split_sql_statements(sql_content: str) -> list[str]:
-    """Split SQL content into statements, respecting string literals."""
-    statements = []
-    current = []
-    in_string = False
-    string_char = None
-
-    i = 0
-    while i < len(sql_content):
-        char = sql_content[i]
-
-        if char in ("'", '"') and not in_string:
-            in_string = True
-            string_char = char
-            current.append(char)
-        elif char == string_char and in_string:
-            if i + 1 < len(sql_content) and sql_content[i + 1] == string_char:
-                current.append(char)
-                current.append(char)
-                i += 1
-            else:
-                in_string = False
-                string_char = None
-                current.append(char)
-        elif char == ";" and not in_string:
-            stmt = "".join(current).strip()
-            if stmt and _has_non_comment_content(stmt):
-                statements.append(stmt)
-            current = []
-        else:
-            current.append(char)
-        i += 1
-
-    if current:
-        stmt = "".join(current).strip()
-        if stmt and _has_non_comment_content(stmt):
-            statements.append(stmt)
-
-    return statements
+from .duckdb_utils import (
+    AGENT_FARM_EXTENSION_SPECS,
+    has_non_comment_content,
+    load_duckdb_extensions,
+    split_sql_statements,
+    start_http_server,
+)
+from .schemas import AGENT_TABLES_SQL
+from .spec_engine import get_spec_engine
 
 
 def find_mcp_config() -> list[tuple[str, dict]]:
@@ -155,62 +116,7 @@ def load_core_extensions(con: duckdb.DuckDBPyConnection) -> list[str]:
     Load core DuckDB extensions required for the Agent Farm.
     Returns list of successfully loaded extensions.
     """
-    # Extensions in priority order
-    # Required extensions are loaded first, optional ones after
-    extensions = [
-        # Spec Engine core (required)
-        ("json", True),
-        ("minijinja", True),  # Template rendering
-        ("json_schema", True),  # JSON Schema validation
-        ("duckdb_mcp", True),  # MCP integration
-        # HTTP & Data (required)
-        ("httpfs", True),
-        ("http_client", True),
-        ("icu", True),
-        # HTTP Server (optional but recommended)
-        ("httpserver", False),
-        # === INTELLIGENCE LAYER ===
-        # DuckLake - Persistent Lakehouse for agent memory
-        ("ducklake", False),  # Time travel, snapshots, schema evolution
-        # Vector Similarity Search - RAG/Embeddings
-        ("vss", False),  # Vector similarity search for semantic retrieval
-        # Full-text search for hybrid retrieval
-        ("fts", False),  # Full-text search
-        # === ADVANCED DATA STRUCTURES ===
-        ("jsonata", False),  # JSONata query/transform
-        ("duckpgq", False),  # Property graphs for spec relationships
-        ("bitfilters", False),  # Bloom/MinHash for similarity/dedup
-        ("lindel", False),  # Space-filling curves for geo/spatial
-        # === TEXT PROCESSING ===
-        ("htmlstringify", False),  # HTML to text for web scraping
-        ("lsh", False),  # Locality Sensitive Hashing for near-dedup
-        # === EXTENDED DATA SOURCES ===
-        ("shellfs", False),  # Shell commands as tables
-        ("zipfs", False),  # ZIP archive access for artifacts
-        # === REAL-TIME ===
-        ("radio", False),  # WebSocket & Redis PubSub for sync
-    ]
-
-    loaded = []
-    for ext, required in extensions:
-        try:
-            con.sql(f"INSTALL {ext};")
-            con.sql(f"LOAD {ext};")
-            loaded.append(ext)
-            print(f"Loaded extension: {ext}", file=sys.stderr)
-        except Exception:
-            try:
-                con.sql(f"INSTALL {ext} FROM community;")
-                con.sql(f"LOAD {ext};")
-                loaded.append(ext)
-                print(f"Loaded extension {ext} from community", file=sys.stderr)
-            except Exception as e:
-                if required:
-                    print(f"REQUIRED extension {ext} failed: {e}", file=sys.stderr)
-                else:
-                    print(f"Skipping optional extension {ext}: {e}", file=sys.stderr)
-
-    return loaded
+    return load_duckdb_extensions(con, AGENT_FARM_EXTENSION_SPECS)
 
 
 def create_runtime_tables(con: duckdb.DuckDBPyConnection) -> None:
@@ -343,12 +249,7 @@ def load_sql_macros(con: duckdb.DuckDBPyConnection) -> int:
             statements = split_sql_statements(sql_script)
             loaded = 0
             for statement in statements:
-                lines = [
-                    ln
-                    for ln in statement.split("\n")
-                    if ln.strip() and not ln.strip().startswith("--")
-                ]
-                if not lines:
+                if not has_non_comment_content(statement):
                     continue
                 try:
                     con.sql(statement)
@@ -372,11 +273,9 @@ def create_agent_tables(con: duckdb.DuckDBPyConnection) -> None:
     Create agent infrastructure tables (workspaces, security_policy, etc.).
     These must exist before SQL macros are loaded, as macros reference them.
     """
-    from .schemas import AGENT_TABLES_SQL
-
-    for stmt in AGENT_TABLES_SQL.split(";"):
+    for stmt in split_sql_statements(AGENT_TABLES_SQL):
         stmt = stmt.strip()
-        if stmt and _has_non_comment_content(stmt):
+        if stmt and has_non_comment_content(stmt):
             try:
                 con.sql(stmt)
             except Exception as e:
@@ -390,10 +289,6 @@ def seed_macros_to_spec_engine(con: duckdb.DuckDBPyConnection) -> int:
     Idempotent: skips macros already present (matched by name + kind).
     Returns the number of newly seeded macros.
     """
-    import re
-
-    from .spec_engine import get_spec_engine
-
     engine = get_spec_engine(con)
     sql_dir = Path(__file__).parent / "sql"
 
@@ -560,9 +455,9 @@ def bootstrap_db(db_path: str) -> duckdb.DuckDBPyConnection:
     try:
         from .orgs import generate_org_seed_sql
 
-        for stmt in generate_org_seed_sql().split(";"):
+        for stmt in split_sql_statements(generate_org_seed_sql()):
             stmt = stmt.strip()
-            if stmt:
+            if stmt and has_non_comment_content(stmt):
                 try:
                     con.sql(stmt)
                 except Exception as e:
@@ -601,9 +496,7 @@ def main():
     if http_port:
         try:
             port = int(http_port)
-            auth = f"X-API-Key {http_api_key}" if http_api_key else ""
-            auth_escaped = auth.replace("'", "''")
-            con.sql(f"SELECT httpserve_start('0.0.0.0', {port}, '{auth_escaped}')")
+            start_http_server(con, port, http_api_key)
             print(f"Spec Engine HTTP server started on port {port}", file=sys.stderr)
         except Exception as e:
             print(f"Failed to start HTTP server: {e}", file=sys.stderr)

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
+import sys
 from typing import Annotated, Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
+
+from .duckdb_utils import split_sql_statements, start_http_server
+from .main import bootstrap_db
+from .spec_engine import get_spec_engine
 
 app = typer.Typer(
     name="agent-farm",
@@ -31,14 +37,7 @@ out = Console()
 
 def init_farm(db: str = ":memory:", quiet: bool = False) -> tuple:
     """Initialize DuckDB + Spec Engine. Thin wrapper around main.bootstrap_db."""
-    import sys
-
-    from .main import bootstrap_db
-    from .spec_engine import get_spec_engine
-
     if quiet:
-        import io
-
         _old_stderr = sys.stderr
         sys.stderr = io.StringIO()
 
@@ -95,10 +94,8 @@ def mcp(
     con, _, _ = init_farm(db)
 
     if http_port:
-        auth = f"X-API-Key {http_api_key}" if http_api_key else ""
-        auth_escaped = auth.replace("'", "''")
         try:
-            con.sql(f"SELECT httpserve_start('0.0.0.0', {http_port}, '{auth_escaped}')")
+            start_http_server(con, http_port, http_api_key)
             console.print(f"[green]HTTP server on port {http_port}[/green]")
         except Exception as e:
             console.print(f"[red]HTTP server failed: {e}[/red]")
@@ -175,8 +172,6 @@ def sql(
     """Execute a SQL file against the initialized database."""
     db = db or _db_option()
     con, _, _ = init_farm(db, quiet=True)
-
-    from .main import split_sql_statements
 
     with open(file, encoding="utf-8") as f:
         content = f.read()
