@@ -343,7 +343,7 @@ docker run -v $(pwd)/data:/data agent-farm:dev
 
 When working on features that use MCP memory:
 
-1. Update `mcp.json` configuration
+1. Update your editor MCP config (see repo root `mcp.json.example`)
 2. Add/update tables in `setup_mcp_tables()`
 3. Document new memory structures
 4. Test memory persistence

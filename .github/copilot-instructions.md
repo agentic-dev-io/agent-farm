@@ -260,7 +260,7 @@ agent-farm/
 ├── pyproject.toml         # Project metadata, dependencies, ruff config
 ├── uv.lock               # Locked dependencies
 ├── Dockerfile            # Multi-stage Python 3.11-slim build
-├── mcp.json              # MCP server configuration
+├── mcp.json.example      # Template for editor MCP config
 └── README.md             # User-facing documentation
 ```
 

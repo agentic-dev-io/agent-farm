@@ -5,9 +5,8 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch: # Allow manual runs
+  workflow_dispatch:
 
-# Cancel in-progress runs on the same branch/PR
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -18,22 +17,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0  # Full history for better analysis
+          fetch-depth: 0
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          python-version: '3.11'
+          python-version: '3.13'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          version: "latest"
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
       - name: Cache uv dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ~/.cache/uv
           key: ${{ runner.os }}-uv-${{ hashFiles('**/uv.lock') }}
@@ -60,11 +57,8 @@ jobs:
 
       - name: Check for common issues
         run: |
-          # Check for TODO/FIXME comments
           echo "Checking for TODO/FIXME comments..."
           grep -r "TODO\|FIXME" src/ || echo "No TODO/FIXME found"
-          
-          # Check for print statements (should use logging)
           echo "Checking for print statements..."
           grep -r "print(" src/ | grep -v "sys.stderr" || echo "No print statements found (or all to stderr)"
 
@@ -74,7 +68,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: github.event_name == 'pull_request'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@3f20e214133d0983f9a10f3d63b0faf9241a3daa # v6.0.0
         with:
           file: ./coverage.xml
           flags: unittests
@@ -97,10 +91,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Check README links
-        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        uses: gaurav-nelson/github-action-markdown-link-check@4a1af151f4d7cf4d8f8ac5780597672a3671b88b # 1.0.17
         with:
           use-quiet-mode: 'yes'
           config-file: '.github/markdown-link-check-config.json'
@@ -109,14 +103,11 @@ jobs:
 
       - name: Check for outdated documentation
         run: |
-          # Check if README mentions correct Python version
-          if grep -q "Python.*3.11" README.md; then
-            echo "✓ README mentions Python 3.11+"
+          if grep -q "Python.*3.13" README.md; then
+            echo "README mentions Python 3.13+"
           else
-            echo "⚠ README might need Python version update"
+            echo "README might need Python version update"
           fi
-          
-          # Check if version in README matches pyproject.toml
           README_VERSION=$(grep -oP 'version = "\K[^"]+' pyproject.toml || echo "unknown")
           echo "Current version in pyproject.toml: $README_VERSION"
 
@@ -125,7 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Check required files exist
         run: |
@@ -136,7 +127,6 @@ jobs:
             ".gitignore"
             "Dockerfile"
           )
-          
           for file in "${required_files[@]}"; do
             if [ -f "$file" ]; then
               echo "✓ $file exists"
@@ -148,27 +138,24 @@ jobs:
 
       - name: Check for large files
         run: |
-          # Find files larger than 1MB (excluding lock files and assets)
           large_files=$(find . -type f -size +1M \
             -not -path "./.git/*" \
             -not -path "./uv.lock" \
             -not -path "./assets/*" \
             -not -path "./*.jpg" \
             -not -path "./*.png" || true)
-          
           if [ -n "$large_files" ]; then
-            echo "⚠ Large files found:"
+            echo "Large files found:"
             echo "$large_files"
           else
-            echo "✓ No unexpectedly large files"
+            echo "No unexpectedly large files"
           fi
 
       - name: Check Python file headers
         run: |
-          # Check if Python files have proper encoding declarations if needed
           python_files=$(find src/ tests/ -name "*.py")
           for file in $python_files; do
             if head -1 "$file" | grep -q "coding"; then
-              echo "✓ $file has encoding declaration"
+              echo "$file has encoding declaration"
             fi
           done
