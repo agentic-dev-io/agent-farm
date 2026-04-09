@@ -1,4 +1,4 @@
-"""Agent Farm CLI — Typer-based command interface."""
+"""Agent Farm CLI -- Typer-based command interface."""
 
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .duckdb_utils import split_sql_statements, start_http_server
-from .main import bootstrap_db
+from .duckdb_utils import split_sql_statements
+from .main import bootstrap_db, resolve_mcp_database_path
+from .mcp_host import run_mcp_stdio_host
 from .spec_engine import get_spec_engine
 
 app = typer.Typer(
@@ -25,7 +26,7 @@ app = typer.Typer(
 spec_app = typer.Typer(help="Manage specs (agents, skills, schemas, workflows, ...).")
 app.add_typer(spec_app, name="spec")
 
-app_cmd = typer.Typer(help="MCP Apps — list and render UI templates.")
+app_cmd = typer.Typer(help="MCP Apps -- list and render UI templates.")
 app.add_typer(app_cmd, name="app")
 
 approval_app = typer.Typer(help="Review and resolve pending approvals.")
@@ -59,7 +60,7 @@ def _db_option() -> str:
 
 
 # ---------------------------------------------------------------------------
-# App callback — default behavior (no subcommand) launches REPL
+# App callback -- default behavior (no subcommand) launches REPL
 # ---------------------------------------------------------------------------
 
 
@@ -90,19 +91,15 @@ def mcp(
     http_api_key: Annotated[Optional[str], typer.Option(help="API key for HTTP server.")] = None,
 ):
     """Start the MCP server (stdio)."""
-    db = db or _db_option()
-    con, _, _ = init_farm(db)
+    db_path = resolve_mcp_database_path(db or None)
 
-    if http_port:
-        try:
-            start_http_server(con, http_port, http_api_key)
-            console.print(f"[green]HTTP server on port {http_port}[/green]")
-        except Exception as e:
-            console.print(f"[red]HTTP server failed: {e}[/red]")
+    if http_port is not None and not 1 <= int(http_port) <= 65535:
+        console.print(f"[red]Invalid HTTP port: {http_port}[/red]")
+        raise typer.Exit(1)
 
     console.print("[green]Starting MCP Server...[/green]")
     try:
-        con.sql("SELECT mcp_server_start('stdio', 'localhost', 0, '{}')")
+        run_mcp_stdio_host(db_path, http_port=http_port, http_api_key=http_api_key)
     except Exception as e:
         console.print(f"[red]MCP Server error: {e}[/red]")
         raise typer.Exit(1)
@@ -304,7 +301,7 @@ def spec_search(
 
 @app_cmd.callback()
 def app_callback():
-    """MCP Apps — list and render UI templates."""
+    """MCP Apps -- list and render UI templates."""
 
 
 @app_cmd.command("list")

@@ -175,11 +175,11 @@ ORG_CONFIGS = {
         ],
     },
     # -------------------------------------------------------------------------
-    # OrchestratorOrg - Central Coordination
+    # AgentFarmer - central coordination (id: orchestrator-org)
     # -------------------------------------------------------------------------
     OrgType.ORCHESTRATOR: {
         "id": "orchestrator-org",
-        "name": "OrchestratorOrg",
+        "name": "AgentFarmer",
         "description": "Central task distribution to orgs",
         "model_primary": "kimi-k2.5:cloud",
         "model_secondary": "glm-5:cloud",
@@ -329,7 +329,7 @@ FORBIDDEN:
 - Access /projects/dev or /projects/ops
 
 You write ONLY documentation and specifications, NO code.""",
-    OrgType.ORCHESTRATOR: """You are OrchestratorOrg - the Central Coordinator.
+    OrgType.ORCHESTRATOR: """You are AgentFarmer - the Central Coordinator.
 
 ROLE:
 - Analyze user tasks and break them into subtasks

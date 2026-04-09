@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS mcp_apps (
     schema_input JSON,
     schema_output JSON,
     csp VARCHAR DEFAULT 'default-src ''self''',
+    -- SEP-1865 (MCP Apps): ui:// resource identity and host metadata
+    resource_uri VARCHAR,
+    mime_type VARCHAR DEFAULT 'text/html;profile=mcp-app',
+    ui_meta JSON,
     enabled BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT now()
 );
@@ -246,7 +250,6 @@ function selectOption(id) {
     card.classList.remove("border-transparent");
     card.classList.add("border-indigo-500", "ring-2", "ring-indigo-500");
     selectedId = id;
-    document.getElementById("rationale-box").classList.remove("hidden");
     document.getElementById("submit-btn").disabled = false;
 }
 function submitChoice() {
@@ -778,19 +781,55 @@ function runCmd() {
 -- SEED DEFAULT APPS
 -- =============================================================================
 
-INSERT INTO mcp_apps (id, name, app_type, description, org_id, template_id) VALUES
-('app.studio.design-choices', 'Design Choices', 'choice', 'Present design options for selection', 'studio-org', 'design-choices'),
-('app.onboarding.profile-choices', 'Profile Selection', 'choice', 'Onboarding profile selection', NULL, 'profile-choices'),
-('app.studio.document', 'Document Viewer', 'viewer', 'Document display', 'studio-org', 'document-viewer'),
-('app.studio.chart', 'Chart Viewer', 'viewer', 'Chart display', 'studio-org', 'chart-viewer'),
-('app.dev.vibe-coder', 'Vibe Coder', 'editor', 'Smart code generation', 'dev-org', 'vibe-coder'),
-('app.studio.solid-docs', 'Solid Docs', 'editor', 'Documentation generator', 'studio-org', 'solid-docs'),
-('app.ops.terminal', 'Terminal', 'shell', 'Command execution', 'ops-org', 'terminal'),
-('app.approval', 'Approval Flow', 'approval', 'Human-in-the-loop decisions', NULL, 'approval-flow'),
-('app.model-selector', 'Model Selector', 'selector', 'AI Model selection like Kling/Veo', NULL, 'model-selector'),
-('app.immersive', 'Immersive Preview', 'preview', 'Full-screen immersive preview', 'studio-org', 'immersive-preview'),
-('app.settings', 'Settings', 'config', 'User settings', NULL, NULL)
+INSERT INTO mcp_apps (
+    id, name, app_type, description, org_id, template_id,
+    resource_uri, mime_type, ui_meta
+) VALUES
+('app.studio.design-choices', 'Design Choices', 'choice', 'Present design options for selection', 'studio-org', 'design-choices',
+    'ui://agent-farm/app/app.studio.design-choices', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.onboarding.profile-choices', 'Profile Selection', 'choice', 'Onboarding profile selection', NULL, 'profile-choices',
+    'ui://agent-farm/app/app.onboarding.profile-choices', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.studio.document', 'Document Viewer', 'viewer', 'Document display', 'studio-org', 'document-viewer',
+    'ui://agent-farm/app/app.studio.document', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.studio.chart', 'Chart Viewer', 'viewer', 'Chart display', 'studio-org', 'chart-viewer',
+    'ui://agent-farm/app/app.studio.chart', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.dev.vibe-coder', 'Vibe Coder', 'editor', 'Smart code generation', 'dev-org', 'vibe-coder',
+    'ui://agent-farm/app/app.dev.vibe-coder', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.studio.solid-docs', 'Solid Docs', 'editor', 'Documentation generator', 'studio-org', 'solid-docs',
+    'ui://agent-farm/app/app.studio.solid-docs', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.ops.terminal', 'Terminal', 'shell', 'Command execution', 'ops-org', 'terminal',
+    'ui://agent-farm/app/app.ops.terminal', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.approval', 'Approval Flow', 'approval', 'Human-in-the-loop decisions', NULL, 'approval-flow',
+    'ui://agent-farm/app/app.approval', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.model-selector', 'Model Selector', 'selector', 'AI Model selection like Kling/Veo', NULL, 'model-selector',
+    'ui://agent-farm/app/app.model-selector', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.immersive', 'Immersive Preview', 'preview', 'Full-screen immersive preview', 'studio-org', 'immersive-preview',
+    'ui://agent-farm/app/app.immersive', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON),
+('app.settings', 'Settings', 'config', 'User settings', NULL, NULL,
+    'ui://agent-farm/app/app.settings', 'text/html;profile=mcp-app',
+    '{"ui":{"csp":{"resourceDomains":["https://cdn.tailwindcss.com"],"connectDomains":[]},"prefersBorder":true}}'::JSON)
 ON CONFLICT (id) DO NOTHING;
+
+-- SEP-1865: declarative UI resources for hosts (list shape; HTML via resources/read / render pipeline)
+CREATE OR REPLACE VIEW mcp_ui_resources_declaration AS
+SELECT
+    resource_uri AS uri,
+    name,
+    description,
+    mime_type AS mimeType,
+    ui_meta AS _meta
+FROM mcp_apps
+WHERE enabled = TRUE AND resource_uri IS NOT NULL;
 
 -- =============================================================================
 -- SEED ONBOARDING PROFILES

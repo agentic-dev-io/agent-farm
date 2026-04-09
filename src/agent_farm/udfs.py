@@ -37,45 +37,8 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _ensure_runtime_support_tables(con: duckdb.DuckDBPyConnection) -> None:
-    """Create runtime helper tables used by Python UDFs."""
-    con.sql("""
-        CREATE SEQUENCE IF NOT EXISTS approval_seq START 1;
-        CREATE SEQUENCE IF NOT EXISTS radio_message_seq START 1;
-
-        CREATE TABLE IF NOT EXISTS pending_approvals (
-            id INTEGER PRIMARY KEY DEFAULT nextval('approval_seq'),
-            session_id VARCHAR NOT NULL,
-            spec_id INTEGER,
-            tool_name VARCHAR NOT NULL,
-            tool_params JSON,
-            reason VARCHAR,
-            created_at TIMESTAMP DEFAULT now(),
-            status VARCHAR DEFAULT 'pending',
-            decision VARCHAR,
-            resolved_at TIMESTAMP,
-            resolved_by VARCHAR
-        );
-
-        CREATE TABLE IF NOT EXISTS radio_subscriptions (
-            sub_id VARCHAR PRIMARY KEY,
-            org_id VARCHAR,
-            channel_name VARCHAR NOT NULL,
-            active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT now()
-        );
-
-        CREATE TABLE IF NOT EXISTS radio_messages (
-            id INTEGER PRIMARY KEY DEFAULT nextval('radio_message_seq'),
-            channel_name VARCHAR NOT NULL,
-            payload JSON NOT NULL,
-            created_at TIMESTAMP DEFAULT now()
-        );
-    """)
-
-
 def _prepare_messages(messages: list[dict], system_prompt: str | None = None) -> list[dict]:
-    """Normalize chat messages for model backends."""
+    """Normalize chat messages for model backends (preserves tool_calls / tool names for Ollama)."""
     prepared: list[dict] = []
     if system_prompt:
         prepared.append({"role": "system", "content": system_prompt})
@@ -83,7 +46,24 @@ def _prepare_messages(messages: list[dict], system_prompt: str | None = None) ->
     for message in messages:
         role = message.get("role")
         content = message.get("content")
-        if role == "system" or content is None:
+        if role == "system":
+            continue
+        if role == "assistant" and message.get("tool_calls"):
+            prepared.append(
+                {
+                    "role": "assistant",
+                    "content": content or "",
+                    "tool_calls": message["tool_calls"],
+                }
+            )
+            continue
+        if role == "tool":
+            entry: dict = {"role": "tool", "content": content or ""}
+            if message.get("name"):
+                entry["name"] = message["name"]
+            prepared.append(entry)
+            continue
+        if content is None:
             continue
         prepared.append({"role": role, "content": content})
 
@@ -544,7 +524,6 @@ def udf_create_approval_request(
         return json.dumps({"error": "session_id and tool_name required"})
 
     try:
-        _ensure_runtime_support_tables(con)
         approval_id = con.execute("SELECT nextval('approval_seq')").fetchone()[0]
         params_json = tool_params or "{}"
         con.execute(
@@ -583,7 +562,6 @@ def udf_resolve_approval_request(
         return json.dumps({"error": "decision must be approved or denied"})
 
     try:
-        _ensure_runtime_support_tables(con)
         row = con.execute(
             "SELECT status FROM pending_approvals WHERE id = ?",
             [approval_id],
@@ -633,7 +611,6 @@ def udf_radio_subscribe(
         return json.dumps({"error": "No database connection"})
 
     try:
-        _ensure_runtime_support_tables(con)
         sub_id = f"sub-{uuid4()}"
         con.execute(
             """
@@ -675,7 +652,6 @@ def udf_radio_transmit_message(
         return json.dumps({"error": "No database connection"})
 
     try:
-        _ensure_runtime_support_tables(con)
 
         # Wrap message with metadata
         envelope = {
@@ -725,7 +701,6 @@ def udf_radio_listen(
         return json.dumps({"error": "No database connection"})
 
     try:
-        _ensure_runtime_support_tables(con)
         timeout_sec = (timeout_ms or 1000) / 1000.0
         deadline = time.monotonic() + timeout_sec
 
@@ -760,7 +735,6 @@ def udf_radio_channel_list(con: duckdb.DuckDBPyConnection | None = None) -> str:
         return json.dumps({"error": "No database connection"})
 
     try:
-        _ensure_runtime_support_tables(con)
         rows = con.execute(
             """
             SELECT

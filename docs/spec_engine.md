@@ -523,7 +523,7 @@ The Spec Engine comes pre-seeded with:
 - `OpsOrg` - Operations organization
 - `ResearchOrg` - Research organization
 - `StudioOrg` - Creative/docs organization
-- `OrchestratorOrg` - Coordination organization
+- `AgentFarmer` - Coordination organization
 
 ### Workflow
 - `agent_onboarding` - Workflow for onboarding new agents
@@ -558,13 +558,14 @@ docs/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DUCKDB_DATABASE` | Path to DuckDB database | `:memory:` |
+| `DUCKDB_DATABASE` | Path to DuckDB database | `~/.agent_farm/agent_farm.db` |
 | `SPEC_ENGINE_HTTP_PORT` | HTTP server port | None (disabled) |
 | `SPEC_ENGINE_API_KEY` | HTTP API authentication key | None |
 | `OLLAMA_BASE_URL` | Ollama chat endpoint | `http://localhost:11434` |
 | `ANTHROPIC_API_KEY` | Anthropic API key | None |
 | `ANTHROPIC_BASE_URL` | Anthropic endpoint override | `https://api.anthropic.com` |
 | `SEARXNG_BASE_URL` | SearXNG endpoint for research macros | `http://searxng:8080` |
+| `AGENT_FARM_LOG` | Log file path | None |
 
 `DUCKDB_DATABASE` is the single environment variable that selects the actual database file used by Agent Farm and `SpecEngine`.
 

@@ -20,8 +20,8 @@ MCP Tools exposed:
 
 import hashlib
 import json
+import logging
 import os
-import sys
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -30,13 +30,15 @@ from weakref import WeakKeyDictionary
 import duckdb
 
 from .duckdb_utils import (
-    SPEC_ENGINE_EXTENSION_SPECS,
     has_non_comment_content,
     is_extension_loaded,
-    load_duckdb_extensions,
     split_sql_statements,
+)
+from .duckdb_utils import (
     start_http_server as start_duckdb_http_server,
 )
+
+log = logging.getLogger("agent_farm.spec_engine")
 
 
 class SpecEngine:
@@ -57,52 +59,54 @@ class SpecEngine:
         self.db_path = db_path or os.environ.get("DUCKDB_DATABASE", ":memory:")
         self._initialized = False
 
-    def initialize(self) -> None:
+    def initialize(self, *, quiet: bool = False) -> None:
         """
         Initialize the Spec Engine database, loading extensions, schema, macros, and seed data.
         """
         if self._initialized:
             return
 
-        print("Initializing Spec Engine...", file=sys.stderr)
-
-        # Load extensions
-        self._load_extensions()
+        _info = log.debug if quiet else log.info
+        _info("Initializing Spec Engine...")
 
         # Load schema
-        self._load_schema()
+        self._load_schema(quiet=quiet)
 
         # Register internal UDFs before loading SQL macros that depend on them.
         self._register_internal_udfs()
 
         # Load macros
-        self._load_macros()
+        self._load_macros(quiet=quiet)
 
         # Load seed data (if tables are empty)
-        self._load_seed_data()
+        self._load_seed_data(quiet=quiet)
 
         self._initialized = True
-        print("Spec Engine initialized successfully.", file=sys.stderr)
-
-    def _load_extensions(self) -> None:
-        """Load required DuckDB extensions."""
-        load_duckdb_extensions(self.con, SPEC_ENGINE_EXTENSION_SPECS)
-
-    def _has_non_comment_content(self, stmt: str) -> bool:
-        """Check if a SQL statement has any non-comment content."""
-        return has_non_comment_content(stmt)
+        _info("Spec Engine initialized successfully.")
 
     def _render_template(self, template_str: str | None, context_json: str | None) -> str | None:
-        """Render a MiniJinja template via parameter binding."""
+        """Render a MiniJinja template directly via Python - avoids re-entrant DuckDB deadlock."""
         if not template_str:
             return None
 
         context_json = context_json or "{}"
-        result = self.con.execute(
-            "SELECT minijinja_render(?, ?)",
-            [template_str, context_json],
-        ).fetchone()
-        return result[0] if result else None
+        try:
+            from minijinja import Environment
+            env = Environment()
+            context = json.loads(context_json)
+            return env.render_str(template_str, **context)
+        except ImportError:
+            import duckdb as _duckdb
+            tmp = _duckdb.connect(self.db_path if self.db_path != ":memory:" else ":memory:")
+            try:
+                tmp.execute("LOAD minijinja")
+                result = tmp.execute(
+                    "SELECT minijinja_render(?, ?)",
+                    [template_str, context_json],
+                ).fetchone()
+                return result[0] if result else None
+            finally:
+                tmp.close()
 
     def _get_template_str(
         self, template_name: str, version: str | None = None
@@ -185,21 +189,19 @@ class SpecEngine:
     def _load_sql_file(self, filepath: str) -> int:
         """Load and execute a SQL file, returning number of statements executed."""
         if not os.path.exists(filepath):
-            print(f"Spec Engine: SQL file not found: {filepath}", file=sys.stderr)
+            log.warning("SQL file not found: %s", filepath)
             return 0
 
         with open(filepath, "r", encoding="utf-8") as f:
             sql_content = f.read()
 
-        # Split into statements
-        statements = self._split_sql(sql_content)
+        statements = split_sql_statements(sql_content)
         executed = 0
         errors: list[str] = []
 
         for stmt in statements:
             stmt = stmt.strip()
-            # Check for non-comment content (handles statements starting with comments)
-            if not self._has_non_comment_content(stmt):
+            if not has_non_comment_content(stmt):
                 continue
             try:
                 self.con.sql(stmt)
@@ -213,51 +215,45 @@ class SpecEngine:
 
         return executed
 
-    def _split_sql(self, sql_content: str) -> list[str]:
-        """Split SQL content into statements, respecting string literals."""
-        return split_sql_statements(sql_content)
-
-    def _load_schema(self) -> None:
+    def _load_schema(self, *, quiet: bool = False) -> None:
         """Load the Spec Engine schema including intelligence layer."""
+        _info = log.debug if quiet else log.info
         db_dir = Path(__file__).parent / "sql" / "spec"
 
         # Core schema
         schema_path = db_dir / "schema.sql"
         count = self._load_sql_file(str(schema_path))
-        print(f"Spec Engine: Loaded schema ({count} statements)", file=sys.stderr)
+        _info("Loaded schema (%d statements)", count)
 
         # Intelligence layer (embeddings, knowledge bases)
         intel_path = db_dir / "intelligence.sql"
         if intel_path.exists():
             intel_count = self._load_sql_file(str(intel_path))
-            print(
-                f"Spec Engine: Loaded intelligence layer ({intel_count} statements)",
-                file=sys.stderr,
-            )
+            _info("Loaded intelligence layer (%d statements)", intel_count)
 
-    def _load_macros(self) -> None:
+    def _load_macros(self, *, quiet: bool = False) -> None:
         """Load the Spec Engine macros including RAG macros."""
+        _info = log.debug if quiet else log.info
         db_dir = Path(__file__).parent / "sql" / "spec"
 
         # Core macros
         macros_path = db_dir / "macros.sql"
         count = self._load_sql_file(str(macros_path))
-        print(f"Spec Engine: Loaded macros ({count} macros)", file=sys.stderr)
+        _info("Loaded macros (%d macros)", count)
 
         # RAG/hybrid search macros
         rag_path = db_dir / "rag.sql"
         if rag_path.exists():
             rag_count = self._load_sql_file(str(rag_path))
-            print(f"Spec Engine: Loaded RAG macros ({rag_count} macros)", file=sys.stderr)
+            _info("Loaded RAG macros (%d macros)", rag_count)
 
-    def _load_seed_data(self) -> None:
+    def _load_seed_data(self, *, quiet: bool = False) -> None:
         """Load seed data if tables are empty."""
+        _info = log.debug if quiet else log.info
         try:
             result = self.con.sql("SELECT COUNT(*) FROM spec_objects").fetchone()
             if result and result[0] > 0:
-                print(
-                    f"Spec Engine: {result[0]} specs already exist, skipping seed", file=sys.stderr
-                )
+                _info("%d specs already exist, skipping seed", result[0])
                 return
         except Exception:
             pass  # Table might not exist yet
@@ -265,7 +261,7 @@ class SpecEngine:
         db_dir = Path(__file__).parent / "sql" / "spec"
         seed_path = db_dir / "seed.sql"
         count = self._load_sql_file(str(seed_path))
-        print(f"Spec Engine: Loaded seed data ({count} statements)", file=sys.stderr)
+        _info("Loaded seed data (%d statements)", count)
 
     # =========================================================================
     # MCP Tool Implementations
@@ -418,9 +414,9 @@ class SpecEngine:
 
         # Build AND condition: every word must appear in name OR summary OR doc
         word_clauses = " AND ".join(
-            f"(LOWER(o.name) LIKE '%' || ? || '%' "
-            f"OR LOWER(o.summary) LIKE '%' || ? || '%' "
-            f"OR LOWER(COALESCE(d.doc,'')) LIKE '%' || ? || '%')"
+            "(LOWER(o.name) LIKE '%' || ? || '%' "
+            "OR LOWER(o.summary) LIKE '%' || ? || '%' "
+            "OR LOWER(COALESCE(d.doc,'')) LIKE '%' || ? || '%')"
             for _ in words
         )
         kind_clause = "AND o.kind = ?" if kind else ""
@@ -648,20 +644,20 @@ class SpecEngine:
         """
         try:
             start_duckdb_http_server(self.con, port, api_key)
-            print(f"Spec Engine: HTTP server started on port {port}", file=sys.stderr)
+            log.info("HTTP server started on port %d", port)
             return True
         except Exception as e:
-            print(f"Spec Engine: Failed to start HTTP server: {e}", file=sys.stderr)
+            log.error("Failed to start HTTP server: %s", e)
             return False
 
     def stop_http_server(self) -> bool:
         """Stop the HTTP server."""
         try:
             self.con.sql("SELECT httpserve_stop()")
-            print("Spec Engine: HTTP server stopped", file=sys.stderr)
+            log.info("HTTP server stopped")
             return True
         except Exception as e:
-            print(f"Spec Engine: Failed to stop HTTP server: {e}", file=sys.stderr)
+            log.error("Failed to stop HTTP server: %s", e)
             return False
 
     # =========================================================================
@@ -921,7 +917,7 @@ class SpecEngine:
             ).fetchall()
             return [row[0] for row in result]
         except Exception as e:
-            print(f"Spec Engine: Error getting extensions: {e}", file=sys.stderr)
+            log.error("Error getting extensions: %s", e)
             return []
 
     def get_spec_kinds(self) -> list[str]:
@@ -1981,7 +1977,7 @@ _spec_engines: WeakKeyDictionary[duckdb.DuckDBPyConnection, SpecEngine] = WeakKe
 _spec_engine_lock = Lock()
 
 
-def get_spec_engine(con: duckdb.DuckDBPyConnection | None = None) -> SpecEngine:
+def get_spec_engine(con: duckdb.DuckDBPyConnection | None = None, *, quiet: bool = False) -> SpecEngine:
     """
     Get or create the SpecEngine bound to a DuckDB connection.
 
@@ -1991,6 +1987,9 @@ def get_spec_engine(con: duckdb.DuckDBPyConnection | None = None) -> SpecEngine:
     Args:
         con: DuckDB connection to bind to. If None, returns the single cached engine
             (raises if none or multiple are active).
+        quiet: If True, SpecEngine initialization logs at DEBUG instead of INFO.
+            Only applies when a new engine is created for this connection; ignored if
+            the engine was already cached.
 
     Returns:
         The SpecEngine for the given (or sole) connection.
@@ -2009,7 +2008,7 @@ def get_spec_engine(con: duckdb.DuckDBPyConnection | None = None) -> SpecEngine:
         engine = _spec_engines.get(con)
         if engine is None:
             engine = SpecEngine(con)
-            engine.initialize()
+            engine.initialize(quiet=quiet)
             _spec_engines[con] = engine
 
         return engine
@@ -2037,7 +2036,7 @@ def register_spec_engine_tools(con: duckdb.DuckDBPyConnection) -> list[str]:
         con.create_function("spec_list_udf", udf_spec_list, return_type="VARCHAR")
         registered.append("spec_list_udf")
     except Exception as e:
-        print(f"Failed to register spec_list_udf: {e}", file=sys.stderr)
+        log.error("Failed to register spec_list_udf: %s", e)
 
     # Register spec_search as UDF
     def udf_spec_search(query: str, limit: int = 20) -> str:
@@ -2048,7 +2047,7 @@ def register_spec_engine_tools(con: duckdb.DuckDBPyConnection) -> list[str]:
         con.create_function("spec_search_udf", udf_spec_search, return_type="VARCHAR")
         registered.append("spec_search_udf")
     except Exception as e:
-        print(f"Failed to register spec_search_udf: {e}", file=sys.stderr)
+        log.error("Failed to register spec_search_udf: %s", e)
 
     # Register render_from_template as UDF
     def udf_render_template(template_name: str, context_json: str) -> str:
@@ -2063,7 +2062,7 @@ def register_spec_engine_tools(con: duckdb.DuckDBPyConnection) -> list[str]:
         con.create_function("render_template_udf", udf_render_template, return_type="VARCHAR")
         registered.append("render_template_udf")
     except Exception as e:
-        print(f"Failed to register render_template_udf: {e}", file=sys.stderr)
+        log.error("Failed to register render_template_udf: %s", e)
 
     # Register validate_payload as UDF
     def udf_validate_payload(kind: str, name: str, payload_json: str) -> str:
@@ -2078,6 +2077,6 @@ def register_spec_engine_tools(con: duckdb.DuckDBPyConnection) -> list[str]:
         con.create_function("validate_payload_udf", udf_validate_payload, return_type="VARCHAR")
         registered.append("validate_payload_udf")
     except Exception as e:
-        print(f"Failed to register validate_payload_udf: {e}", file=sys.stderr)
+        log.error("Failed to register validate_payload_udf: %s", e)
 
     return registered

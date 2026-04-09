@@ -148,19 +148,22 @@ CREATE TABLE IF NOT EXISTS notes_board (
 );
 
 -- Create note on board
+-- Returns pending_insert JSON; Python runtime in mcp_host._handle_pending_action()
+-- intercepts this and INSERTs into lake.notes_board.
 CREATE OR REPLACE MACRO notes_board_create(project_name, note_title, note_content) AS (
     SELECT json_object(
         'action', 'notes_board_create',
         'id', 'note-' || strftime(now(), '%Y%m%d%H%M%S') || '-' || (random() * 1000)::INTEGER,
         'project', project_name,
         'title', note_title,
-        'content_length', length(note_content),
-        'status', 'pending_insert',
-        'note', 'Note creation handled by Python runtime'
+        'content', note_content,
+        'status', 'pending_insert'
     )
 );
 
--- List notes for project
+-- List notes for project — reads from lake.notes_board for cross-session persistence.
+-- For time-travel / deduplication: returns the latest version of each note
+-- (DuckLake append-on-update means multiple rows per id are possible; pick max updated_at).
 CREATE OR REPLACE MACRO notes_board_list(project_name) AS (
     SELECT json_group_array(j) FROM (
         SELECT json_object(
@@ -169,20 +172,24 @@ CREATE OR REPLACE MACRO notes_board_list(project_name) AS (
             'status', status,
             'created_at', created_at::VARCHAR
         ) as j
-        FROM notes_board
-        WHERE project = project_name
+        FROM (
+            SELECT id, title, status, created_at,
+                   row_number() OVER (PARTITION BY id ORDER BY updated_at DESC) AS rn
+            FROM lake.notes_board
+            WHERE project = project_name
+        ) t
+        WHERE rn = 1
         ORDER BY created_at DESC
     )
 );
 
--- Update note
+-- Update note — returns pending_update JSON; Python runtime handles actual DML.
 CREATE OR REPLACE MACRO notes_board_update(note_id_param, new_content) AS (
     SELECT json_object(
         'action', 'notes_board_update',
         'id', note_id_param,
-        'content_length', length(new_content),
-        'status', 'pending_update',
-        'note', 'Note update handled by Python runtime'
+        'content', new_content,
+        'status', 'pending_update'
     )
 );
 
@@ -304,7 +311,7 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
                 json_extract_string(tool_params, '$.required_fields')
             )
 
-        -- DuckPGQ Tools (OrchestratorOrg)
+        -- DuckPGQ Tools (AgentFarmer)
         WHEN tool_name_param = 'orchestrator_call_chain'
             THEN orchestrator_call_chain(session_id_param)
         WHEN tool_name_param = 'orchestrator_add_dependency'
@@ -365,10 +372,24 @@ CREATE OR REPLACE MACRO execute_org_tool(org_id_param, session_id_param, tool_na
                 json_extract_string(tool_params, '$.channel'),
                 json_extract(tool_params, '$.timeout_ms')::INTEGER
             )
+        WHEN tool_name_param = 'orchestrator_subscribe'
+            THEN orchestrator_subscribe(
+                COALESCE(
+                    json_extract_string(tool_params, '$.channel'),
+                    json_extract_string(tool_params, '$.channel_name')
+                )
+            )
         WHEN tool_name_param = 'ops_publish_status'
             THEN ops_publish_status(
                 json_extract_string(tool_params, '$.channel'),
                 tool_params
+            )
+        WHEN tool_name_param = 'ops_subscribe_ci'
+            THEN ops_subscribe_ci(
+                COALESCE(
+                    json_extract_string(tool_params, '$.ci_channel'),
+                    json_extract_string(tool_params, '$.channel')
+                )
             )
         WHEN tool_name_param = 'studio_collab_event'
             THEN studio_collab_event(

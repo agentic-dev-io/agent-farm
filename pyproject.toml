@@ -22,16 +22,22 @@ classifiers = [
 
 dependencies = [
     "duckdb>=1.1.0",
+    "mcp>=1.2.0",
     "numpy>=1.26.0",
+    "rich>=13.0",
     "typer>=0.24.1",
 ]
 
 [project.scripts]
 agent-farm = "agent_farm.cli:cli"
+agent-farm-mcp = "agent_farm.main:main"
 
 [project.urls]
 Homepage = "https://github.com/agentic-dev-io/agent-farm"
 Repository = "https://github.com/agentic-dev-io/agent-farm"
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40.0"]
 
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]

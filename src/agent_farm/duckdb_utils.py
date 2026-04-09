@@ -1,42 +1,31 @@
-"""Shared DuckDB helpers for Agent Farm runtime setup."""
+﻿"""Shared DuckDB helpers for Agent Farm runtime setup."""
 
 from __future__ import annotations
 
-import sys
+import logging
+import time
+from pathlib import Path
 from typing import Iterable
 
 import duckdb
+from rich.progress import Progress, TaskID
 
-ExtensionSpec = tuple[str, bool]
+from .extensions import ExtensionSpec
 
-SPEC_ENGINE_EXTENSION_SPECS: tuple[ExtensionSpec, ...] = (
-    ("json", True),
-    ("minijinja", True),
-    ("json_schema", True),
-    ("duckdb_mcp", True),
-    ("httpfs", True),
-    ("http_client", True),
-    ("httpserver", False),
-    ("vss", False),
-    ("fts", False),
+log = logging.getLogger("agent_farm.duckdb_utils")
+
+# Per DuckDB docs / extension pages: install these from the community repo first
+# (INSTALL x FROM community; or install_extension(x, repository="community")).
+# httpserver is community-only per duckdb.org/community_extensions/extensions/httpserver.html
+EXTENSION_COMMUNITY_REPO_FIRST: frozenset[str] = frozenset(
+    {"duckdb_mcp", "http_client", "httpserver", "minijinja", "jsonata"}
 )
 
-AGENT_FARM_EXTRA_EXTENSION_SPECS: tuple[ExtensionSpec, ...] = (
-    ("icu", True),
-    ("ducklake", False),
-    ("jsonata", False),
-    ("duckpgq", False),
-    ("bitfilters", False),
-    ("lindel", False),
-    ("htmlstringify", False),
-    ("lsh", False),
-    ("shellfs", False),
-    ("zipfs", False),
-    ("radio", False),
-)
-
-AGENT_FARM_EXTENSION_SPECS: tuple[ExtensionSpec, ...] = (
-    SPEC_ENGINE_EXTENSION_SPECS + AGENT_FARM_EXTRA_EXTENSION_SPECS
+# Extensions that live exclusively in the official DuckDB repo (extensions.duckdb.org).
+# Community install attempt is skipped for these -- it would fail with "already installed
+# from a different origin" and is never correct for core-shipped extensions.
+EXTENSION_CORE_ONLY: frozenset[str] = frozenset(
+    {"ducklake", "vss", "fts", "icu", "json", "lsh", "shellfs", "zipfs", "fts", "spatial"}
 )
 
 
@@ -119,24 +108,76 @@ def is_extension_loaded(con: duckdb.DuckDBPyConnection, extension_name: str) -> 
     return bool(result and result[0])
 
 
+def _install_and_load_extension(
+    con: duckdb.DuckDBPyConnection,
+    extension_name: str,
+    *,
+    repository: str | None,
+    load_only: bool,
+) -> None:
+    """Official DuckDB Python pattern (duckdb.org docs): install_extension + load_extension.
+
+    Uses the Python client API:
+      con.install_extension(name)                    -- core/official repo
+      con.install_extension(name, repository=...)    -- specific repo
+      con.load_extension(name)                       -- load an installed extension
+    See: https://duckdb.org/docs/stable/clients/python/reference/index
+    """
+    if not load_only:
+        if repository == "community":
+            con.install_extension(extension_name, repository="community")
+        elif repository == "core":
+            con.install_extension(extension_name, repository="core")
+        else:
+            con.install_extension(extension_name)
+    con.load_extension(extension_name)
+
+
 def _load_extension(
     con: duckdb.DuckDBPyConnection, extension_name: str
 ) -> tuple[bool, list[str], str | None]:
-    errors: list[str] = []
-    attempts = [
-        ("default", f"INSTALL {extension_name};", f"LOAD {extension_name};"),
-        ("community", f"INSTALL {extension_name} FROM community;", f"LOAD {extension_name};"),
-        ("bundled", None, f"LOAD {extension_name};"),
-    ]
+    """Try repositories in an order that matches DuckDB extension docs. Returns (success, errors, source name).
 
-    for source, install_stmt, load_stmt in attempts:
+    Repository strategy:
+    - EXTENSION_COMMUNITY_REPO_FIRST: community first, then official, then bundled
+    - EXTENSION_CORE_ONLY: official only, then bundled (never community -- wrong origin)
+    - Default: official first, then community, then bundled
+    """
+    errors: list[str] = []
+
+    if extension_name in EXTENSION_COMMUNITY_REPO_FIRST:
+        # Community-only extensions (e.g. duckdb_mcp, httpserver)
+        attempts: list[tuple[str, str | None, bool]] = [
+            ("community", "community", False),
+            ("default", None, False),
+            ("bundled", None, True),
+        ]
+    elif extension_name in EXTENSION_CORE_ONLY:
+        # Core/official-only extensions (e.g. ducklake). Never try community --
+        # that would fail with "already installed from a different origin".
+        attempts = [
+            ("default", None, False),
+            ("bundled", None, True),
+        ]
+    else:
+        # Default: try official first, community as fallback, then bundled
+        attempts = [
+            ("default", None, False),
+            ("community", "community", False),
+            ("bundled", None, True),
+        ]
+
+    for source, repo, load_only in attempts:
         try:
-            if install_stmt:
-                con.sql(install_stmt)
-            con.sql(load_stmt)
+            _install_and_load_extension(
+                con, extension_name, repository=repo, load_only=load_only
+            )
             return True, errors, source
         except Exception as exc:
-            errors.append(f"{source}: {exc}")
+            err_msg = str(exc).strip()
+            if len(err_msg) > 200:
+                err_msg = err_msg[:197] + "..."
+            errors.append(f"{source}: {err_msg}")
 
     return False, errors, None
 
@@ -169,33 +210,132 @@ def try_load_extension(
 def load_duckdb_extensions(
     con: duckdb.DuckDBPyConnection,
     extensions: Iterable[ExtensionSpec],
-) -> list[str]:
-    """Load the requested DuckDB extensions, logging failures to stderr."""
-    loaded: list[str] = []
+    *,
+    progress: Progress | None = None,
+    task_id: TaskID | None = None,
+) -> tuple[list[str], list[str]]:
+    """Load DuckDB extensions. Returns (loaded_names, optional_skipped_names).
 
-    for extension_name, required in extensions:
+    Raises RuntimeError if any required extension fails.
+    When progress/task_id are set, per-extension INFO logs are omitted (use progress UI).
+    """
+    specs = tuple(extensions)
+    loaded: list[str] = []
+    skipped_optional: list[str] = []
+    failed_required: list[tuple[str, str]] = []
+    use_progress = progress is not None and task_id is not None
+    tid = task_id
+
+    for extension_name, required in specs:
         if is_extension_loaded(con, extension_name):
             loaded.append(extension_name)
+            if use_progress and progress is not None and tid is not None:
+                progress.update(tid, description=f"[dim]{extension_name}[/] (cached)")
+                progress.advance(tid)
             continue
+
+        if use_progress and progress is not None and tid is not None:
+            progress.update(tid, description=f"[cyan]{extension_name}[/]")
 
         ok, errors, source = _load_extension(con, extension_name)
         if ok:
             loaded.append(extension_name)
-            if source == "community":
-                print(f"Loaded extension {extension_name} from community", file=sys.stderr)
-            elif source == "bundled":
-                print(f"Loaded bundled extension: {extension_name}", file=sys.stderr)
+            if use_progress:
+                if progress is not None and tid is not None:
+                    src = f" [{source}]" if source else ""
+                    progress.update(tid, description=f"[green]✓[/] [cyan]{extension_name}[/]{src}")
+                    progress.advance(tid)
             else:
-                print(f"Loaded extension: {extension_name}", file=sys.stderr)
+                if source == "community":
+                    log.info("Loaded extension %s from community", extension_name)
+                elif source == "bundled":
+                    log.info("Loaded bundled extension: %s", extension_name)
+                else:
+                    log.info("Loaded extension: %s", extension_name)
             continue
 
         detail = "; ".join(errors)
         if required:
-            print(f"REQUIRED extension {extension_name} failed: {detail}", file=sys.stderr)
+            log.error("REQUIRED extension %s failed: %s", extension_name, detail)
+            failed_required.append((extension_name, detail))
         else:
-            print(f"Skipping optional extension {extension_name}: {detail}", file=sys.stderr)
+            skipped_optional.append(extension_name)
+            log.warning(
+                "Optional extension %s skipped: %s",
+                extension_name,
+                detail[:500] if detail else "(no detail)",
+            )
+            if use_progress and progress is not None and tid is not None:
+                progress.update(tid, description=f"[yellow]⚠[/] [dim]{extension_name}[/] (skipped)")
+                progress.advance(tid)
 
-    return loaded
+    if failed_required:
+        names = ", ".join(n for n, _ in failed_required)
+        msg = f"Required extension(s) failed: {names}. Check log for details."
+        raise RuntimeError(msg)
+
+    if skipped_optional:
+        log.info("Optional extensions skipped: %s", ", ".join(skipped_optional))
+
+    return loaded, skipped_optional
+
+
+def wal_file_path(database_file: str) -> Path:
+    """Return the WAL path for a DuckDB database file (``<file>.db`` → ``<file>.db.wal``)."""
+    return Path(str(Path(database_file).resolve()) + ".wal")
+
+
+def _is_wal_replay_failure(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return (
+        "wal" in msg
+        or "replaying" in msg
+        or "replay" in msg
+        or "getdefaultdatabase" in msg
+    )
+
+
+def _apply_checkpoint_on_shutdown(con: duckdb.DuckDBPyConnection) -> None:
+    """Checkpoint on shutdown merges WAL into the DB file (DuckDB docs: configuration pragmas)."""
+    try:
+        con.execute("PRAGMA enable_checkpoint_on_shutdown")
+    except Exception as exc:
+        log.debug("PRAGMA enable_checkpoint_on_shutdown: %s", exc)
+
+
+def connect_duckdb_persistent(database_path: str) -> duckdb.DuckDBPyConnection:
+    """
+    Open a persistent DuckDB file. If WAL replay fails, move ``*.wal`` aside once and retry.
+
+    Uncommitted transactions in a broken WAL are lost; the main ``.db`` file is kept. See DuckDB
+    crash recovery: a normal reopen replays WAL; if replay errors internally, discarding WAL is
+    the last resort. After open, enables ``PRAGMA enable_checkpoint_on_shutdown`` when supported.
+    """
+    if database_path == ":memory:":
+        return duckdb.connect(database=database_path)
+    resolved = str(Path(database_path).resolve())
+    try:
+        con = duckdb.connect(resolved)
+    except Exception as exc:
+        if not _is_wal_replay_failure(exc):
+            raise
+        wal = wal_file_path(resolved)
+        if not wal.is_file():
+            raise
+        aside = wal.with_name(f"{wal.name}.broken.{int(time.time())}")
+        log.warning(
+            "DuckDB WAL replay failed (%s); moving WAL aside to %s and reconnecting once.",
+            exc,
+            aside.name,
+        )
+        try:
+            wal.rename(aside)
+        except OSError as err:
+            log.error("Could not move WAL file aside: %s", err)
+            raise exc from err
+        con = duckdb.connect(resolved)
+    _apply_checkpoint_on_shutdown(con)
+    return con
 
 
 def build_http_auth_header(api_key: str | None) -> str:

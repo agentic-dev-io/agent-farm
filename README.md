@@ -4,8 +4,6 @@
 
 # Agent Farm
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N71WOHZ3)
-
 [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org)
 [![DuckDB](https://img.shields.io/badge/DuckDB-1.1+-yellow.svg)](https://duckdb.org)
 [![MCP](https://img.shields.io/badge/MCP-Protocol-green.svg)](https://modelcontextprotocol.io)
@@ -25,7 +23,7 @@
 # Install
 uv add agent-farm
 
-# Interactive REPL (default: OrchestratorOrg)
+# Interactive REPL (default: AgentFarmer)
 agent-farm
 
 # Start MCP server
@@ -56,7 +54,7 @@ docker compose run test          # Run test suite
 ## CLI
 
 ```
-agent-farm                              # Interactive REPL (Orchestrator)
+agent-farm                              # Interactive REPL (AgentFarmer)
 agent-farm --org dev                    # REPL with DevOrg
 agent-farm --session my-session         # Resume persistent session
 
@@ -78,13 +76,15 @@ agent-farm approval resolve 1 approved  # Resolve approval request
 agent-farm sql <file.sql>               # Execute SQL against initialized DB
 ```
 
+**MCP Apps (SEP-1865):** `ui://` resources, CSP metadata, and host expectations — [docs/mcp_apps_sep1865.md](docs/mcp_apps_sep1865.md).
+
 ### Interactive REPL
 
 The default mode — chat with AI agents, run slash-commands:
 
 ```
-[OrchestratorOrg]> Analyze the project structure and suggest improvements
-[OrchestratorOrg]> /org dev                    # Switch to DevOrg
+[AgentFarmer]> Analyze the project structure and suggest improvements
+[AgentFarmer]> /org dev                    # Switch to DevOrg
 [DevOrg]> /spec list --kind agent              # List agent specs
 [DevOrg]> /sql SELECT count(*) FROM spec_objects
 [DevOrg]> /status                              # Quick status summary
@@ -130,7 +130,7 @@ docs/                  # Documentation
 
 | Org | Model | Security | Role |
 |-----|-------|----------|------|
-| **OrchestratorOrg** | kimi-k2.5:cloud | conservative | Task routing, coordination |
+| **AgentFarmer** | kimi-k2.5:cloud | conservative | Task routing, coordination |
 | **DevOrg** | glm-5:cloud | standard | Code, reviews, tests |
 | **OpsOrg** | kimi-k2.5:cloud | power | CI/CD, deploy, render |
 | **ResearchOrg** | gpt-oss:20b-cloud | conservative | SearXNG search, analysis |
@@ -175,21 +175,21 @@ See [docs/spec_engine.md](docs/spec_engine.md) for the Spec Engine architecture 
 
 ---
 
-## MCP Client Configuration
+## MCP client configuration
 
-```json
-{
-  "mcpServers": {
-    "agent-farm": {
-      "command": "agent-farm",
-      "args": ["mcp"],
-      "env": {
-        "DUCKDB_DATABASE": ".agent_memory.db"
-      }
-    }
-  }
-}
-```
+Copy [`mcp.json.example`](mcp.json.example) into your editor config (e.g. Cursor user `mcp.json`), replace `<PATH_TO_YOUR_AGENT_FARM_CLONE>` with your clone path. **Do not commit** a project-local `mcp.json` (gitignored).
+
+Use `uv run --directory <clone> agent-farm mcp` (see example) so the package resolves even when the editor does not set `cwd`. Add **other** MCP servers (filesystem, search, …) in the same `mcpServers` object as needed.
+
+**Default DB for MCP:** `~/.agent_farm/agent_farm_mcp.db` — not the same file as the REPL default (`agent_farm.db`), so the editor and a local REPL do not fight for one DuckDB lock. To use the same file as the REPL, set `env.DUCKDB_DATABASE` to that path and ensure only one process opens it.
+
+At runtime, Agent Farm reads those configs to fill the SQL table `mcp_servers` with **other** servers only — entries that run `agent-farm mcp` are **not** listed (avoids registering yourself). Override: `AGENT_FARM_MCP_INVENTORY_INCLUDE_SELF=1` for debugging.
+
+**Cursor / timeouts / locks:** see [docs/mcp_cursor.md](docs/mcp_cursor.md).
+
+Optional variants (same file, extra keys): `:memory:` via `env.DUCKDB_DATABASE`; HTTP: `agent-farm mcp --http-port 9999` + `SPEC_ENGINE_API_KEY` if you expose the API.
+
+Optional: `uv add anthropic` or `pip install agent-farm[anthropic]` if you use Claude models via the Anthropic API in UDFs.
 
 ---
 
@@ -197,7 +197,7 @@ See [docs/spec_engine.md](docs/spec_engine.md) for the Spec Engine architecture 
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DUCKDB_DATABASE` | Database path | `:memory:` |
+| `DUCKDB_DATABASE` | Database path | REPL/default CLI: `~/.agent_farm/agent_farm.db`; **`agent-farm mcp`** without this env: `~/.agent_farm/agent_farm_mcp.db` |
 | `SPEC_ENGINE_HTTP_PORT` | HTTP server port | — |
 | `SPEC_ENGINE_API_KEY` | HTTP API key | — |
 | `OLLAMA_BASE_URL` | Ollama endpoint | `http://localhost:11434` |
@@ -205,13 +205,18 @@ See [docs/spec_engine.md](docs/spec_engine.md) for the Spec Engine architecture 
 | `ANTHROPIC_BASE_URL` | Anthropic endpoint override | `https://api.anthropic.com` |
 | `SEARXNG_BASE_URL` | SearXNG endpoint | `http://searxng:8080` |
 | `BRAVE_API_KEY` | Brave Search key | — |
+| `AGENT_FARM_LOG` | Log file path | — |
+| `AGENT_FARM_PLAIN_LOG` | Set to `1` to disable Rich progress / emoji on startup (classic logs) | — |
+| `AGENT_FARM_MCP_INVENTORY_INCLUDE_SELF` | Set to `1` to include Agent Farm’s own MCP entry in `mcp_servers` (not recommended) | — |
+
+If DuckDB fails to **replay the WAL** on open, stop other processes using the same file, then retry. The runtime moves `agent_farm.db.wal` aside to `agent_farm.db.wal.broken.<timestamp>` once and reconnects (see [DuckDB crash recovery](https://duckdb.org/docs/stable/guides/troubleshooting/crashes)); uncommitted data in that WAL is lost. `PRAGMA enable_checkpoint_on_shutdown` is applied on connect to reduce stray WAL files.
 
 ---
 
 ## Development
 
 ```bash
-uv sync --extra dev
+uv sync --group dev
 
 # Tests
 uv run pytest tests/ -v

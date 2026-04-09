@@ -243,7 +243,7 @@ VALUES (20, 20, '{
     ],
     "dependencies": ["minijinja", "json_schema", "duckdb_mcp"],
     "config": {
-        "database": ".agent_farm.db",
+        "database": "~/.agent_farm/agent_farm.db",
         "http_port": 9999
     }
 }', 'skill_config_schema');
@@ -619,14 +619,14 @@ VALUES (53, 53, '{
     "denied_patterns": []
 }', NULL);
 
--- OrchestratorOrg
+-- AgentFarmer (coordination org; type orchestrator)
 INSERT INTO spec_objects (id, kind, name, version, status, summary)
-VALUES (54, 'org', 'OrchestratorOrg', '1.0.0', 'active',
-        'Orchestrator organization for coordinating other orgs');
+VALUES (54, 'org', 'AgentFarmer', '1.0.0', 'active',
+        'Coordinates tasks across Dev, Ops, Research, and Studio orgs');
 
 INSERT INTO spec_payloads (id, object_id, payload, schema_ref)
 VALUES (54, 54, '{
-    "name": "OrchestratorOrg",
+    "name": "AgentFarmer",
     "type": "orchestrator",
     "primary_model": "kimi-k2.5",
     "secondary_model": "glm-4.7",

@@ -66,7 +66,7 @@ CREATE OR REPLACE MACRO dev_extract_deps(package_json) AS (
 );
 
 -- =============================================================================
--- DUCKPGQ (OrchestratorOrg)
+-- DUCKPGQ (AgentFarmer / orchestrator-org)
 -- Property Graph Queries for agent relationships and task dependencies
 -- =============================================================================
 
@@ -86,7 +86,7 @@ CREATE OR REPLACE MACRO create_agent_graph() AS (
         )'
 );
 
--- OrchestratorOrg: Find shortest path between orgs
+-- AgentFarmer: Find shortest path between orgs
 CREATE OR REPLACE MACRO orchestrator_find_path(from_org, to_org) AS (
     SELECT TRY(
         'FROM GRAPH_TABLE (agent_network
@@ -98,7 +98,7 @@ CREATE OR REPLACE MACRO orchestrator_find_path(from_org, to_org) AS (
     )
 );
 
--- OrchestratorOrg: Get org call chain
+-- AgentFarmer: Get org call chain
 CREATE OR REPLACE MACRO orchestrator_call_chain(session_id_param) AS (
     SELECT json_group_array(j) FROM (
         SELECT json_object(
@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS task_dependencies (
     PRIMARY KEY (task_id, depends_on)
 );
 
--- OrchestratorOrg: Add task dependency
+-- AgentFarmer: Add task dependency
 CREATE OR REPLACE MACRO orchestrator_add_dependency(task_id_param, depends_on_param, dep_type) AS (
     SELECT json_object(
         'action', 'orchestrator_add_dependency',
@@ -133,7 +133,7 @@ CREATE OR REPLACE MACRO orchestrator_add_dependency(task_id_param, depends_on_pa
     )
 );
 
--- OrchestratorOrg: Get ready tasks (no unmet dependencies)
+-- AgentFarmer: Get ready tasks (no unmet dependencies)
 CREATE OR REPLACE MACRO orchestrator_get_ready_tasks() AS TABLE
     SELECT t.id, t.task
     FROM org_calls t
@@ -301,7 +301,7 @@ CREATE OR REPLACE MACRO research_find_similar_docs(query_content, threshold, lim
 );
 
 -- =============================================================================
--- RADIO (OrchestratorOrg + OpsOrg + StudioOrg)
+-- RADIO (AgentFarmer + OpsOrg + StudioOrg)
 -- In-memory Pub/Sub via Python UDFs (Windows-compatible, no extension needed)
 -- UDFs: radio_subscribe, radio_transmit_message, radio_listen, radio_channel_list
 -- =============================================================================
@@ -315,22 +315,22 @@ CREATE TABLE IF NOT EXISTS radio_subscriptions (
     created_at TIMESTAMP DEFAULT now()
 );
 
--- OrchestratorOrg: Subscribe to agent events
+-- AgentFarmer: Subscribe to agent events
 CREATE OR REPLACE MACRO orchestrator_subscribe(channel_name_param) AS (
     SELECT radio_subscribe(channel_name_param)
 );
 
--- OrchestratorOrg: Broadcast task to agents
+-- AgentFarmer: Broadcast task to agents
 CREATE OR REPLACE MACRO orchestrator_broadcast(channel_param, message_json) AS (
     SELECT radio_transmit_message(channel_param, message_json)
 );
 
--- OrchestratorOrg: Listen for agent responses (non-blocking)
+-- AgentFarmer: Listen for agent responses (non-blocking)
 CREATE OR REPLACE MACRO orchestrator_listen(channel_param, timeout_ms) AS (
     SELECT radio_listen(channel_param, COALESCE(timeout_ms, 1000))
 );
 
--- OrchestratorOrg: List all active channels
+-- AgentFarmer: List all active channels
 CREATE OR REPLACE MACRO orchestrator_channels() AS (
     SELECT radio_channel_list()
 );
@@ -394,7 +394,7 @@ CREATE OR REPLACE MACRO smart_route(org_id_param, task_type, task_params) AS (
                 json_extract(task_params, '$.embedding')::DOUBLE[]
             )::VARCHAR
 
-        -- OrchestratorOrg tasks
+        -- AgentFarmer tasks
         WHEN org_id_param = 'orchestrator-org' AND task_type = 'broadcast'
             THEN orchestrator_broadcast(
                 json_extract_string(task_params, '$.channel'),

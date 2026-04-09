@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Test script for DuckDB extensions loading"""
-import duckdb
 import sys
+
+import duckdb
+
 
 def test_extensions():
     con = duckdb.connect(':memory:')
@@ -25,7 +27,7 @@ def test_extensions():
             con.sql(f"LOAD {ext};")
             print(f"  [OK] {ext}")
             success.append(ext)
-        except Exception as e:
+        except Exception:
             try:
                 con.sql(f"INSTALL {ext} FROM community;")
                 con.sql(f"LOAD {ext};")

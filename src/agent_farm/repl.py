@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import logging
 import shlex
+import uuid
 from datetime import datetime, timezone
 
+import duckdb
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -220,10 +222,118 @@ def _cmd_session(session_id: str | None, org: OrgType, messages: list[dict]) -> 
 # ---------------------------------------------------------------------------
 
 
-def _chat(org: OrgType, user_input: str, messages: list[dict]) -> str | None:
+def _fetch_orchestrator_tools(con: duckdb.DuckDBPyConnection) -> list | None:
+    """Load Ollama-format tool definitions from SQL macro orchestrator_tools_schema()."""
+    try:
+        row = con.execute("SELECT orchestrator_tools_schema()").fetchone()
+        if not row or row[0] is None:
+            return None
+        raw = row[0]
+        if isinstance(raw, str):
+            return json.loads(raw)
+        return raw
+    except Exception as exc:
+        log.debug("orchestrator_tools_schema: %s", exc)
+        return None
+
+
+def _run_orchestrator_tool(
+    con: duckdb.DuckDBPyConnection,
+    session_id: str,
+    tool_name: str,
+    arguments_json: str,
+) -> str:
+    """Execute execute_orchestrator_tool() in DuckDB; returns JSON string."""
+    try:
+        row = con.execute(
+            "SELECT execute_orchestrator_tool(?, ?, ?::JSON)",
+            [session_id, tool_name, arguments_json],
+        ).fetchone()
+    except Exception:
+        row = con.execute(
+            "SELECT execute_orchestrator_tool(?, ?, ?)",
+            [session_id, tool_name, arguments_json],
+        ).fetchone()
+    if not row or row[0] is None:
+        return "{}"
+    val = row[0]
+    if isinstance(val, str):
+        return val
+    return json.dumps(val)
+
+
+def _chat_orchestrator_with_tools(
+    con: duckdb.DuckDBPyConnection,
+    user_input: str,
+    messages: list[dict],
+    tools: list,
+    session_id: str,
+) -> str | None:
+    """AgentFarmer: Ollama tool loop + DuckDB execute_orchestrator_tool (dispatch JSON)."""
+    cfg = ORG_CONFIGS[OrgType.ORCHESTRATOR]
+    model = cfg["model_primary"]
+    system_prompt = ORG_SYSTEM_PROMPTS[OrgType.ORCHESTRATOR]
+
+    messages.append({"role": "user", "content": user_input})
+
+    for _ in range(6):
+        data = chat_with_model(model, messages, system_prompt=system_prompt, tools=tools)
+        if "error" in data:
+            out.print(f"[red]Error:[/red] {data['error']}")
+            messages.pop()
+            return None
+
+        content = (data.get("content") or "").strip()
+        tool_calls = data.get("tool_calls") or []
+
+        if tool_calls:
+            if content:
+                out.print(Markdown(content))
+            messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
+            for tc in tool_calls:
+                fn = tc.get("function") or {}
+                name = fn.get("name") or ""
+                raw_args = fn.get("arguments")
+                if isinstance(raw_args, dict):
+                    args_json = json.dumps(raw_args)
+                elif raw_args is None:
+                    args_json = "{}"
+                else:
+                    args_json = str(raw_args)
+                result = _run_orchestrator_tool(con, session_id, name, args_json)
+                preview = result if len(result) <= 400 else result[:400] + "…"
+                out.print(f"[dim]→ {name}[/dim]\n[dim]{preview}[/dim]")
+                messages.append({"role": "tool", "content": result, "name": name})
+            continue
+
+        if content:
+            out.print(Markdown(content))
+            messages.append({"role": "assistant", "content": content})
+            return content
+
+        out.print("[dim](no text reply; try rephrasing)[/dim]")
+        messages.append({"role": "assistant", "content": ""})
+        return None
+
+    out.print("[yellow]Stopped after max tool rounds.[/yellow]")
+    return None
+
+
+def _chat(
+    org: OrgType,
+    user_input: str,
+    messages: list[dict],
+    con: duckdb.DuckDBPyConnection,
+    tool_session_id: str,
+) -> str | None:
     cfg = ORG_CONFIGS[org]
     model = cfg["model_primary"]
     system_prompt = ORG_SYSTEM_PROMPTS[org]
+
+    if org == OrgType.ORCHESTRATOR:
+        tools = _fetch_orchestrator_tools(con)
+        if tools:
+            return _chat_orchestrator_with_tools(con, user_input, messages, tools, tool_session_id)
 
     messages.append({"role": "user", "content": user_input})
     content_chunks: list[str] = []
@@ -276,6 +386,7 @@ def start_repl(
         org_type = OrgType.ORCHESTRATOR
 
     session_id = session
+    tool_session_id = session_id or uuid.uuid4().hex
     messages: list[dict] = []
 
     if session_id:
@@ -351,6 +462,6 @@ def start_repl(
                 out.print(f"[dim]Unknown command: {cmd}  (try /help)[/dim]")
 
         else:
-            _chat(org_type, user_input, messages)
+            _chat(org_type, user_input, messages, con, tool_session_id)
             if session_id:
                 _save_session(con, session_id, org_type, messages)
