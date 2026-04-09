@@ -16,3 +16,19 @@ wheels/
 docs/plans/
 docs/typer-reference.md
 .claude/settings.local.json
+
+# Local MCP editor config (use mcp.json.example as template)
+mcp.json
+
+# IDE
+.idea/
+
+# DuckDB runtime/test databases
+*.db
+*.db.wal
+.tmp_test.db*
+agent_farm_mcp.db*
+
+# MCP debug dumps
+__mcp_*.txt
+mcp_test_stderr.txt

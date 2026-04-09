@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "agent-farm": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "<PATH_TO_YOUR_AGENT_FARM_CLONE>",
+        "agent-farm",
+        "mcp"
+      ],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}
