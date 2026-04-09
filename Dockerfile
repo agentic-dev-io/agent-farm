@@ -1,43 +1,46 @@
 # Agent Farm — DuckDB Spec-OS for multi-org AI agent swarms
+# Multi-stage build: Chainguard Python for zero-CVE runtime.
 
-FROM python:3.11-slim
+# -------- Builder stage --------
+# Chainguard dev image ships with uv, gcc and apk preinstalled.
+FROM cgr.dev/chainguard/python:latest-dev AS builder
 
+USER root
 WORKDIR /app
 
-# Install system dependencies for DuckDB extensions
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv for fast package management
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
-
-# Copy project files
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 COPY src/ src/
-COPY README.md .
 COPY scripts/ scripts/
 COPY tests/ tests/
 
-# Build arg for dev deps (pytest etc.)
 ARG INSTALL_DEV=0
 RUN if [ "$INSTALL_DEV" = "1" ]; then uv sync --frozen --all-extras; else uv sync --frozen --no-dev; fi
 
-# Pre-install DuckDB extensions (with error handling for unavailable extensions)
+# Pre-install DuckDB extensions (cached under /root/.duckdb/extensions)
 RUN /app/.venv/bin/python scripts/install_extensions.py
 
-# Create a non-root user
-RUN useradd -m farmer
-RUN mkdir -p /data && chown farmer:farmer /data
+# Stage the data volume directory with nonroot ownership so the runtime image
+# (which has no shell) can expose it without a RUN step.
+RUN mkdir -p /stage/data /stage/home/nonroot \
+    && cp -a /root/.duckdb /stage/home/nonroot/.duckdb \
+    && chown -R 65532:65532 /stage
+
+# -------- Runtime stage --------
+# Minimal Chainguard Python image: no shell, no package manager, nonroot by default.
+FROM cgr.dev/chainguard/python:latest AS runtime
+
+WORKDIR /app
+
+COPY --from=builder --chown=65532:65532 /app /app
+COPY --from=builder --chown=65532:65532 /stage/home/nonroot/.duckdb /home/nonroot/.duckdb
+COPY --from=builder --chown=65532:65532 /stage/data /data
+
 VOLUME /data
-ENV DB_PATH=/data/farm.db
-
-# Switch to non-root user
-USER farmer
-
-# Add venv to path
+ENV DUCKDB_DATABASE=/data/farm.db
 ENV PATH="/app/.venv/bin:$PATH"
+
+USER nonroot
 EXPOSE 8080
 
-CMD ["agent-farm", "mcp"]
+ENTRYPOINT ["/app/.venv/bin/agent-farm"]
+CMD ["mcp"]
